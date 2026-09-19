@@ -139,10 +139,14 @@ Requer .NET SDK 8 e Raylib-cs.
 cd ResetyKile
 dotnet restore
 dotnet run
+```
 
 Compilar versão final (Windows)
-bash
+
+```bash
 dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true
+```
+
 O .exe sai em bin/Release/net8.0/win-x64/publish/.
 
 🛠️ Notas técnicas / Armadilhas conhecidas
@@ -232,5 +236,6 @@ Se quiser deixar tudo bem guardado:
 cd C:\Users\Rafael\ResetyKile
 git init
 git add .
-git commit -m "v0.3 - Super + escudo + combate com dano dividido"#   R e s e t y K i l e  
+git commit -m "v0.3 - Super + escudo + combate com dano dividido"#   R e s e t y K i l e 
+ 
  

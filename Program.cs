@@ -14,10 +14,13 @@ public static class Program
     private const float MaxFrameDt   = 0.25f;
     private const float PlayerRespawnDelay = 1.5f;
 
-    // Multi-kill
-    private const int   MultiKillThreshold = 3;
-    private const float MultiKillBonus     = 1.2f;
-    private const float KnockbackStrength  = 140f;
+    // Dano
+    private const float NormalAttackDamage   = 2.0f;  // dano base (mata 1 inimigo se sozinho)
+    private const float DashAttackDamage     = 2.0f;  // dano do dash-attack em cada alvo prioritário
+    private const float DashAttackResidual   = 0.5f;  // dano residual nos outros quando 3+
+    private const int   DashAttackMaxKills   = 2;     // máximo de kills por dash-attack
+
+    private const float KnockbackStrength = 140f;
 
     public static void Main()
     {
@@ -91,7 +94,9 @@ public static class Program
                 player.Update(FixedDt, input, level);
                 player.TryAttack(input);
 
-                // ---- Ataque ----
+                // ============================================================
+                // ATAQUE
+                // ============================================================
                 if (player.IsAttacking && !player.HasHitThisSwing)
                 {
                     var hitbox = player.AttackHitbox;
@@ -106,59 +111,23 @@ public static class Program
 
                     if (hitTargets.Count > 0)
                     {
-                        bool isMulti = hitTargets.Count >= MultiKillThreshold;
-
-                        // Dano total
-                        float totalDamage = Player.AttackDamage;
-                        if (isMulti) totalDamage *= MultiKillBonus;
-
-                        float dmgPerEnemy = totalDamage / hitTargets.Count;
-
-                        // Direção do knockback (do Kile pra cada inimigo)
-                        // Simplificamos: usa o facing do Kile
+                        bool isDashAttack = player.IsDashing;
+                        bool isDoubleHit  = hitTargets.Count >= 2;
                         int kbDir = player.Facing;
 
-                        // Juice básico
-                        if (isMulti)
+                        if (isDashAttack)
                         {
-                            hitStop.Trigger(0.12f);
-                            shake.AddTrauma(0.5f);
-                            particles.Burst(player.Position, 16, new Color((byte)255, (byte)180, (byte)80, (byte)255),
-                                            80f, 180f, 0.5f, gravity: 400f, size: 2f);
+                            // ---- DASH-ATTACK: mata até 2 mais próximos + residual nos outros ----
+                            ProcessDashAttack(hitTargets, player, shake, hitStop, particles);
                         }
                         else
                         {
-                            hitStop.Trigger(hitTargets.Count > 1 ? 0.05f : 0.06f);
-                            particles.Burst(player.Position, 6, new Color((byte)255, (byte)255, (byte)200, (byte)255),
-                                            40f, 90f, 0.3f, gravity: 300f, size: 1f);
+                            // ---- ATAQUE NORMAL: dano dividido ----
+                            ProcessNormalAttack(hitTargets, player, shake, hitStop, particles);
                         }
 
-                        // Aplica dano + knockback em cada inimigo
-                        foreach (var e in hitTargets)
-                        {
-                            bool died = e.TakeDamage(dmgPerEnemy);
-
-                            // Knockback SEMPRE (vivo ou morto, se tava vivo)
-                            e.ApplyKnockback(kbDir, KnockbackStrength);
-
-                            if (died)
-                            {
-                                player.AddSoul(1);
-                                shake.AddTrauma(0.35f);
-                                hitStop.Trigger(0.08f);
-                                particles.Burst(e.Position, 12, new Color((byte)255, (byte)120, (byte)120, (byte)255),
-                                                60f, 140f, 0.5f, gravity: 400f, size: 2f);
-                            }
-                            else
-                            {
-                                shake.AddTrauma(0.25f);
-                                particles.Burst(e.Position, 4, new Color((byte)255, (byte)220, (byte)120, (byte)255),
-                                                40f, 80f, 0.25f, gravity: 300f, size: 1f);
-                            }
-                        }
-
-                        // Texto flutuante
-                        if (isMulti)
+                        // "Damn!" — Hp <= 4 OU 2+ inimigos
+                        if (player.Hp <= 4 || isDoubleHit)
                         {
                             floatingText.Spawn("Damn!", player.Position + new Vector2(0f, -14f),
                                 new Color((byte)255, (byte)220, (byte)80, (byte)255), 0.7f);
@@ -176,7 +145,7 @@ public static class Program
                         if (!e.IsAlive) continue;
                         if (!Raylib.CheckCollisionRecs(player.Bounds, e.Bounds)) continue;
 
-                        player.TakeDamage(1, (int)e.Position.X);
+                        player.TakeDamage(2, (int)e.Position.X);
                         shake.AddTrauma(0.5f);
                         hitStop.Trigger(0.1f);
                         particles.Burst(player.Position, 10, new Color((byte)255, (byte)80, (byte)80, (byte)255),
@@ -207,7 +176,6 @@ public static class Program
                 foreach (var e in enemies)
                     e.SeparateFrom(enemies, FixedDt);
 
-                // ---- Morte → respawn ----
                 if (player.State == PlayerState.Dead && !playerIsDead)
                 {
                     playerIsDead = true;
@@ -304,11 +272,15 @@ public static class Program
             }
 
             particles.Draw();
+            floatingText.Draw();
 
             if (player.IsAttacking)
             {
                 var hb = player.AttackHitbox;
-                Raylib.DrawRectangleRec(hb, new Color((byte)255, (byte)255, (byte)255, (byte)180));
+                Color katanaColor = player.IsDashing
+                    ? new Color((byte)150, (byte)240, (byte)255, (byte)200)
+                    : new Color((byte)255, (byte)255, (byte)255, (byte)180);
+                Raylib.DrawRectangleRec(hb, katanaColor);
 
                 Raylib.DrawLineEx(
                     new Vector2(player.Position.X, player.Position.Y),
@@ -338,7 +310,119 @@ public static class Program
     }
 
     // ============================================================
-    // DESENHO DOS INIMIGOS — stacking + contorno escuro + sombra
+    // ATAQUE NORMAL — dano dividido
+    // ============================================================
+    private static void ProcessNormalAttack(List<Enemy> hitTargets, Player player,
+        ScreenShake shake, HitStop hitStop, Particles particles)
+    {
+        bool isDoubleHit = hitTargets.Count >= 2;
+        float dmgPerEnemy = NormalAttackDamage / hitTargets.Count;
+        int kbDir = player.Facing;
+
+        if (isDoubleHit)
+        {
+            hitStop.Trigger(0.08f);
+            shake.AddTrauma(0.4f);
+            particles.Burst(player.Position, 12, new Color((byte)255, (byte)180, (byte)80, (byte)255),
+                            70f, 160f, 0.5f, gravity: 400f, size: 2f);
+        }
+        else
+        {
+            hitStop.Trigger(0.06f);
+            particles.Burst(player.Position, 6, new Color((byte)255, (byte)255, (byte)200, (byte)255),
+                            40f, 90f, 0.3f, gravity: 300f, size: 1f);
+        }
+
+        foreach (var e in hitTargets)
+        {
+            bool died = e.TakeDamage(dmgPerEnemy);
+            e.ApplyKnockback(kbDir, KnockbackStrength);
+
+            if (died)
+            {
+                player.AddSoul(1);
+                shake.AddTrauma(0.35f);
+                hitStop.Trigger(0.08f);
+                particles.Burst(e.Position, 12, new Color((byte)255, (byte)120, (byte)120, (byte)255),
+                                60f, 140f, 0.5f, gravity: 400f, size: 2f);
+            }
+            else
+            {
+                shake.AddTrauma(0.25f);
+                particles.Burst(e.Position, 4, new Color((byte)255, (byte)220, (byte)120, (byte)255),
+                                40f, 80f, 0.25f, gravity: 300f, size: 1f);
+            }
+        }
+    }
+
+    // ============================================================
+    // DASH-ATTACK — hit kill em até 2 mais próximos + residual
+    // ============================================================
+    private static void ProcessDashAttack(List<Enemy> hitTargets, Player player,
+        ScreenShake shake, HitStop hitStop, Particles particles)
+    {
+        int kbDir = player.Facing;
+
+        // Ordena por distância ao player (mais próximos primeiro)
+        var sorted = new List<Enemy>(hitTargets);
+        sorted.Sort((a, b) =>
+        {
+            float da = Vector2.DistanceSquared(a.Position, player.Position);
+            float db = Vector2.DistanceSquared(b.Position, player.Position);
+            return da.CompareTo(db);
+        });
+
+        // Juice do dash-attack (sem hitstop pra não travar)
+        shake.AddTrauma(0.5f);
+        particles.Burst(player.Position, 16, new Color((byte)140, (byte)230, (byte)255, (byte)255),
+                        80f, 180f, 0.4f, gravity: 300f, size: 2f);
+
+        int killCount = 0;
+
+        for (int i = 0; i < sorted.Count; i++)
+        {
+            var e = sorted[i];
+
+            if (killCount < DashAttackMaxKills)
+            {
+                // Mata (dano alto)
+                bool died = e.TakeDamage(DashAttackDamage);
+                e.ApplyKnockback(kbDir, KnockbackStrength * 1.3f);
+
+                if (died)
+                {
+                    killCount++;
+                    player.AddSoul(1);
+                    particles.Burst(e.Position, 14, new Color((byte)255, (byte)120, (byte)120, (byte)255),
+                                    70f, 160f, 0.5f, gravity: 400f, size: 2f);
+                }
+            }
+            else
+            {
+                // Dano residual
+                bool died = e.TakeDamage(DashAttackResidual);
+                e.ApplyKnockback(kbDir, KnockbackStrength);
+
+                if (died)
+                {
+                    // Se o residual matou (raro, inimigo já tava ferido)
+                    killCount++;
+                    player.AddSoul(1);
+                    particles.Burst(e.Position, 14, new Color((byte)255, (byte)120, (byte)120, (byte)255),
+                                    70f, 160f, 0.5f, gravity: 400f, size: 2f);
+                }
+                else
+                {
+                    // Sobreviveu: burst laranja (feedback do residual)
+                    particles.Burst(e.Position, 6, new Color((byte)255, (byte)180, (byte)80, (byte)255),
+                                    50f, 100f, 0.3f, gravity: 300f, size: 1f);
+                }
+            }
+        }
+    }
+
+    // ============================================================
+    // DESENHO DOS INIMIGOS
     // ============================================================
     private static void DrawEnemies(List<Enemy> enemies)
     {
@@ -361,8 +445,7 @@ public static class Program
                 if (other.Id >= e.Id) continue;
                 float dx = MathF.Abs(other.Position.X - e.Position.X);
                 float dy = MathF.Abs(other.Position.Y - e.Position.Y);
-                if (dx < 5f && dy < 5f)
-                    stackOffset++;
+                if (dx < 5f && dy < 5f) stackOffset++;
             }
             stackOffset = Math.Min(stackOffset, 2);
 

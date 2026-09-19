@@ -23,8 +23,6 @@ public class Player
     private const float JumpBuffer    = 0.10f;
     private const float DashSpeed     = 240f;
     private const float DashTime      = 0.15f;
-    private const float DashCooldown  = 0.20f;
-    private const float DashEndSpeed  = 160f;
 
     // Super
     private const float LickDuration  = 0.6f;
@@ -34,15 +32,21 @@ public class Player
     // Ataque
     private const float AttackDuration = 0.15f;
     private const float AttackCooldown = 0.25f;
-    private const float AttackRange    = 14f;
+    private const float AttackRange    = 21f;
     private const float AttackHeight   = 13f;
-    public  const float AttackDamage   = 2.0f;
 
     // Vida e dano
-    public  const int   MaxHp              = 5;
+    public  const int   MaxHp              = 20;
     private const float InvulnDuration     = 1.0f;
     private const float KnockbackX         = 120f;
     private const float KnockbackY         = -90f;
+
+    // Stamina de dash
+    public  const int   MaxStamina         = 3;
+    public  const float DashCost           = 1.0f;
+    public  const float DashAttackCost     = 1.5f;
+    public  const float StaminaRegenGround = 1f / 1.2f;
+    public  const float StaminaRegenAir    = 1f / 3.0f;
 
     // ---------- Estado ----------
     public Vector2 Position;
@@ -51,18 +55,18 @@ public class Player
     public int Facing = 1;
 
     public PlayerState State = PlayerState.Normal;
-    public int Souls { get; private set; }         // int
+    public int Souls { get; private set; }
     public int Hp    { get; private set; } = MaxHp;
-    public bool Shield { get; private set; }       // escudo sobre o último coração
+    public bool Shield { get; private set; }
     public float SuperTimer { get; private set; }
-    public bool HasDashAvailable { get; private set; } = true;
+    public float Stamina { get; private set; } = MaxStamina;
 
     public float InvulnTimer { get; private set; }
     public bool IsInvulnerable => InvulnTimer > 0f
                                 || State == PlayerState.Dashing
                                 || State == PlayerState.Super;
 
-    private float _coyote, _jumpBuf, _varJump, _dashTimer, _dashCd, _lickTimer;
+    private float _coyote, _jumpBuf, _varJump, _dashTimer, _lickTimer;
     private bool  _onGround;
     private int   _dashDirX, _dashDirY;
     private int   _wallDir;
@@ -79,6 +83,7 @@ public class Player
     public bool OnGround => _onGround;
     public bool IsDashing => State == PlayerState.Dashing;
     public bool SuperReady => Souls >= MaxSouls;
+    public bool CanDash(float cost) => Stamina >= cost || State == PlayerState.Super;
 
     public void AddSoul(int amount = 1)
         => Souls = Math.Clamp(Souls + amount, 0, MaxSouls);
@@ -87,7 +92,6 @@ public class Player
     {
         if (IsInvulnerable) return;
 
-        // Escudo absorve: quebra escudo, não perde HP
         if (Shield)
         {
             Shield = false;
@@ -145,10 +149,10 @@ public class Player
         Shield = false;
         SuperTimer = 0f;
         InvulnTimer = 0f;
-        HasDashAvailable = true;
+        Stamina = MaxStamina;
         _onGround = false;
         _coyote = _jumpBuf = _varJump = 0f;
-        _dashTimer = _dashCd = _lickTimer = 0f;
+        _dashTimer = _lickTimer = 0f;
         _attackTimer = _attackCd = 0f;
         Facing = 1;
     }
@@ -160,7 +164,6 @@ public class Player
         _jumpBuf     = input.JumpPressed ? JumpBuffer : MathF.Max(0, _jumpBuf - dt);
         _varJump     = MathF.Max(0, _varJump - dt);
         _dashTimer   = MathF.Max(0, _dashTimer - dt);
-        _dashCd      = MathF.Max(0, _dashCd - dt);
         _attackTimer = MathF.Max(0, _attackTimer - dt);
         _attackCd    = MathF.Max(0, _attackCd - dt);
         InvulnTimer  = MathF.Max(0, InvulnTimer - dt);
@@ -180,6 +183,13 @@ public class Player
             if (SuperTimer <= 0f) State = PlayerState.Normal;
         }
 
+        // ---- Regeneração de stamina ----
+        if (State != PlayerState.Super && Stamina < MaxStamina)
+        {
+            float regenRate = _onGround ? StaminaRegenGround : StaminaRegenAir;
+            Stamina = MathF.Min(Stamina + regenRate * dt, MaxStamina);
+        }
+
         if (State == PlayerState.LickingKatana)
         {
             _lickTimer -= dt;
@@ -193,9 +203,8 @@ public class Player
                 State = PlayerState.Super;
                 SuperTimer = SuperDuration;
                 Souls = 0;
-
-                // ⭐ Super concede o escudo (não regenera vida)
                 Shield = true;
+                Stamina = MaxStamina;
             }
             return;
         }
@@ -208,15 +217,23 @@ public class Player
             return;
         }
 
-        // ---- Dash ----
-        if (input.DashPressed && HasDashAvailable && _dashCd <= 0f && State != PlayerState.Dashing)
+        // ---- Dash (custo variável: dash-attack custa mais) ----
+        // Se o jogador aperta dash + ataque no mesmo tick, cobra DashAttackCost
+        bool attackBuffered = input.AttackPressed;
+        bool wantDash = input.DashPressed && State != PlayerState.Dashing;
+
+        if (wantDash)
         {
-            State = PlayerState.Dashing;
-            _dashTimer = DashTime;
-            _dashCd = DashTime + DashCooldown;
-            HasDashAvailable = false;
-            (_dashDirX, _dashDirY) = Input.DashDirection(input, Facing);
-            if (_dashDirX != 0) Facing = _dashDirX;
+            float cost = attackBuffered ? DashAttackCost : DashCost;
+            if (CanDash(cost))
+            {
+                State = PlayerState.Dashing;
+                _dashTimer = DashTime;
+                if (State != PlayerState.Super)
+                    Stamina = MathF.Max(0f, Stamina - cost);
+                (_dashDirX, _dashDirY) = Input.DashDirection(input, Facing);
+                if (_dashDirX != 0) Facing = _dashDirX;
+            }
         }
 
         if (State == PlayerState.Dashing)
@@ -225,7 +242,7 @@ public class Player
             if (_dashTimer <= 0f)
             {
                 State = PlayerState.Normal;
-                Velocity = Vector2.Normalize(Velocity) * DashEndSpeed;
+                Velocity = Vector2.Normalize(Velocity) * 0.5f;
             }
         }
         else
@@ -280,7 +297,6 @@ public class Player
         MoveX(Velocity.X * dt, level);
         MoveY(Velocity.Y * dt, level);
 
-        if (_onGround) HasDashAvailable = true;
         if (!IsAttacking) HasHitThisSwing = false;
     }
 
