@@ -16,7 +16,7 @@ public class Player
     private const float RunAccel      = 1000f;
     private const float RunDeccel     = 400f;
     private const float AirAccelMult  = 0.65f;
-    private const float JumpSpeed     = 105f;
+    private const float JumpSpeed     = 220f;
     private const float JumpHBoost    = 40f;
     private const float VarJumpTime   = 0.2f;
     private const float CoyoteTime    = 0.10f;
