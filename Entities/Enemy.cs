@@ -19,7 +19,18 @@ public class Enemy
     private const float DeathFlicker  = 0.15f;
     private const float HurtFlicker   = 0.12f;
 
+    // Separação entre inimigos
+    private const float MinSeparation = 5f;
+    private const float SeparateForce = 40f;
+
+    // Knockback
+    private const float KnockbackDecel = 600f;   // desaceleração horizontal
+    private const float KnockbackMinSpeed = 10f; // abaixo disso, IA retoma controle
+
     public const float MaxHp = 2.0f;
+
+    private static int _nextId = 1;
+    public int Id { get; }
 
     // ---------- Estado ----------
     public Vector2 Position;
@@ -45,12 +56,12 @@ public class Enemy
 
     public Enemy(Vector2 pos, Level level)
     {
+        Id = _nextId++;
         Position = pos;
         SpawnPosition = pos;
         _level = level;
     }
 
-    /// Aplica dano. Retorna true se morreu com esse dano.
     public bool TakeDamage(float dmg)
     {
         if (!IsAlive) return false;
@@ -67,7 +78,14 @@ public class Enemy
         return false;
     }
 
-    /// Mata instantâneo (uso interno / super).
+    /// Empurra o inimigo na direção 'dirX' (-1 ou +1) com força.
+    public void ApplyKnockback(int dirX, float strength)
+    {
+        if (!IsAlive) return;
+        Velocity.X = dirX * strength;
+        Velocity.Y = -60f; // pulinho
+    }
+
     public void Kill()
     {
         if (!IsAlive) return;
@@ -117,15 +135,31 @@ public class Enemy
 
         float speed = State == EnemyState.Chase ? ChaseSpeed : PatrolSpeed;
 
-        if (State == EnemyState.Chase)
+        // ---------- Knockback vs IA ----------
+        // Se a velocidade horizontal é alta (veio de knockback),
+        // aplica atrito e NÃO sobrescreve com IA
+        bool inKnockback = MathF.Abs(Velocity.X) > KnockbackMinSpeed;
+
+        if (inKnockback)
         {
-            int dir = playerPos.X > Position.X ? 1 : -1;
-            Facing = dir;
-            Velocity.X = dir * speed;
+            // Aplica atrito
+            float sign = MathF.Sign(Velocity.X);
+            Velocity.X = MathUtil_Approach(Velocity.X, 0f, KnockbackDecel * dt);
+            if (MathF.Sign(Velocity.X) != sign) Velocity.X = 0f;
         }
         else
         {
-            Velocity.X = Facing * speed;
+            // IA controla normalmente
+            if (State == EnemyState.Chase)
+            {
+                int dir = playerPos.X > Position.X ? 1 : -1;
+                Facing = dir;
+                Velocity.X = dir * speed;
+            }
+            else
+            {
+                Velocity.X = Facing * speed;
+            }
         }
 
         Velocity.Y = MathF.Min(Velocity.Y + Gravity * dt, MaxFall);
@@ -133,7 +167,8 @@ public class Enemy
         MoveX(Velocity.X * dt, _level);
         MoveY(Velocity.Y * dt, _level);
 
-        if (State == EnemyState.Patrol)
+        // ---------- Comportamento com parede/beirada ----------
+        if (State == EnemyState.Patrol && !inKnockback)
         {
             if (_wallDir != 0) Facing = -_wallDir;
             if (_onGround)
@@ -145,9 +180,36 @@ public class Enemy
                 if (!_level.CollidesAny(frontFoot)) Facing = -Facing;
             }
         }
-        else
+        else if (State == EnemyState.Chase && !inKnockback)
         {
             if (_wallDir != 0 && _onGround) Velocity.Y = -160f;
+        }
+    }
+
+    public void SeparateFrom(List<Enemy> others, float dt)
+    {
+        if (!IsAlive) return;
+
+        foreach (var other in others)
+        {
+            if (other == this) continue;
+            if (!other.IsAlive) continue;
+
+            float dx = other.Position.X - Position.X;
+            float adx = MathF.Abs(dx);
+
+            if (adx >= MinSeparation) continue;
+            if (MathF.Abs(other.Position.Y - Position.Y) > 6f) continue;
+
+            int pushDir;
+            if (adx < 0.01f)
+                pushDir = (Id % 2 == 0) ? 1 : -1;
+            else
+                pushDir = dx > 0 ? -1 : 1;
+
+            float overlap = MinSeparation - adx;
+            float push = SeparateForce * dt * (overlap / MinSeparation);
+            Position.X += pushDir * push;
         }
     }
 
@@ -179,5 +241,13 @@ public class Enemy
             Velocity.Y = 0;
             rect = Bounds;
         }
+    }
+
+    // Helper local (não pode usar MathUtil.Approach direto porque tá em Core)
+    private static float MathUtil_Approach(float v, float target, float maxDelta)
+    {
+        if (v < target) return MathF.Min(v + maxDelta, target);
+        if (v > target) return MathF.Max(v - maxDelta, target);
+        return v;
     }
 }
