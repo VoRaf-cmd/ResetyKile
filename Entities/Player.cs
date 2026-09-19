@@ -31,6 +31,19 @@ public class Player
     private const float SuperDuration = 8.0f;
     private const int   SoulsToSuper  = 10;
 
+    // Ataque
+    private const float AttackDuration = 0.15f;
+    private const float AttackCooldown = 0.25f;
+    private const float AttackRange    = 14f;
+    private const float AttackHeight   = 13f;
+    public  const float AttackDamage   = 2.0f;
+
+    // Vida e dano
+    public  const int   MaxHp              = 5;
+    private const float InvulnDuration     = 1.0f;
+    private const float KnockbackX         = 120f;
+    private const float KnockbackY         = -90f;
+
     // ---------- Estado ----------
     public Vector2 Position;
     public Vector2 Velocity;
@@ -38,32 +51,128 @@ public class Player
     public int Facing = 1;
 
     public PlayerState State = PlayerState.Normal;
-    public int Souls { get; private set; }
+    public int Souls { get; private set; }         // int
+    public int Hp    { get; private set; } = MaxHp;
+    public bool Shield { get; private set; }       // escudo sobre o último coração
     public float SuperTimer { get; private set; }
     public bool HasDashAvailable { get; private set; } = true;
+
+    public float InvulnTimer { get; private set; }
+    public bool IsInvulnerable => InvulnTimer > 0f
+                                || State == PlayerState.Dashing
+                                || State == PlayerState.Super;
 
     private float _coyote, _jumpBuf, _varJump, _dashTimer, _dashCd, _lickTimer;
     private bool  _onGround;
     private int   _dashDirX, _dashDirY;
     private int   _wallDir;
 
+    private float _attackTimer;
+    private float _attackCd;
+    public bool IsAttacking => _attackTimer > 0f;
+    public bool HasHitThisSwing { get; private set; }
+
     // ---------- API pública ----------
+    public const int MaxSouls = 10;
+
     public Rectangle Bounds => new(Position.X - Size.X / 2f, Position.Y - Size.Y / 2f, Size.X, Size.Y);
     public bool OnGround => _onGround;
     public bool IsDashing => State == PlayerState.Dashing;
-    public bool IsInvulnerable => State == PlayerState.Dashing || State == PlayerState.Super;
+    public bool SuperReady => Souls >= MaxSouls;
 
-    public void AddSoul() => Souls = Math.Min(Souls + 1, SoulsToSuper);
+    public void AddSoul(int amount = 1)
+        => Souls = Math.Clamp(Souls + amount, 0, MaxSouls);
+
+    public void TakeDamage(int amount, int fromDirX)
+    {
+        if (IsInvulnerable) return;
+
+        // Escudo absorve: quebra escudo, não perde HP
+        if (Shield)
+        {
+            Shield = false;
+            InvulnTimer = InvulnDuration;
+
+            int dirS = fromDirX == 0 ? -Facing : (Position.X < fromDirX ? -1 : 1);
+            Velocity.X = dirS * KnockbackX * 0.7f;
+            Velocity.Y = KnockbackY * 0.7f;
+            return;
+        }
+
+        Hp = Math.Max(0, Hp - amount);
+        InvulnTimer = InvulnDuration;
+
+        int dir = fromDirX == 0 ? -Facing : (Position.X < fromDirX ? -1 : 1);
+        Velocity.X = dir * KnockbackX;
+        Velocity.Y = KnockbackY;
+
+        if (Hp <= 0) State = PlayerState.Dead;
+    }
+
+    public Rectangle AttackHitbox
+    {
+        get
+        {
+            float w = AttackRange;
+            float h = AttackHeight;
+            float x = Facing > 0 ? Position.X : Position.X - w;
+            float y = Position.Y - h / 2f;
+            return new Rectangle(x, y, w, h);
+        }
+    }
+
+    public bool TryAttack(InputState input)
+    {
+        if (input.AttackPressed && _attackCd <= 0f && !IsAttacking && State != PlayerState.Dead)
+        {
+            _attackTimer = AttackDuration;
+            _attackCd    = AttackDuration + AttackCooldown;
+            HasHitThisSwing = false;
+            return true;
+        }
+        return false;
+    }
+
+    public void MarkHit() => HasHitThisSwing = true;
+
+    public void Respawn(Vector2 spawnPos)
+    {
+        Position = spawnPos;
+        Velocity = Vector2.Zero;
+        State = PlayerState.Normal;
+        Hp = MaxHp;
+        Souls = 0;
+        Shield = false;
+        SuperTimer = 0f;
+        InvulnTimer = 0f;
+        HasDashAvailable = true;
+        _onGround = false;
+        _coyote = _jumpBuf = _varJump = 0f;
+        _dashTimer = _dashCd = _lickTimer = 0f;
+        _attackTimer = _attackCd = 0f;
+        Facing = 1;
+    }
 
     // ---------- Update ----------
     public void Update(float dt, InputState input, Level level)
     {
-        // ---- Timers ----
-        _coyote  = _onGround ? CoyoteTime : MathF.Max(0, _coyote - dt);
-        _jumpBuf = input.JumpPressed ? JumpBuffer : MathF.Max(0, _jumpBuf - dt);
-        _varJump = MathF.Max(0, _varJump - dt);
-        _dashTimer = MathF.Max(0, _dashTimer - dt);
-        _dashCd    = MathF.Max(0, _dashCd - dt);
+        _coyote      = _onGround ? CoyoteTime : MathF.Max(0, _coyote - dt);
+        _jumpBuf     = input.JumpPressed ? JumpBuffer : MathF.Max(0, _jumpBuf - dt);
+        _varJump     = MathF.Max(0, _varJump - dt);
+        _dashTimer   = MathF.Max(0, _dashTimer - dt);
+        _dashCd      = MathF.Max(0, _dashCd - dt);
+        _attackTimer = MathF.Max(0, _attackTimer - dt);
+        _attackCd    = MathF.Max(0, _attackCd - dt);
+        InvulnTimer  = MathF.Max(0, InvulnTimer - dt);
+
+        if (State == PlayerState.Dead)
+        {
+            Velocity.Y = MathF.Min(Velocity.Y + Gravity * dt, MaxFall);
+            MoveX(Velocity.X * dt, level);
+            MoveY(Velocity.Y * dt, level);
+            Velocity.X = MathUtil.Approach(Velocity.X, 0f, RunDeccel * dt);
+            return;
+        }
 
         if (State == PlayerState.Super)
         {
@@ -71,7 +180,6 @@ public class Player
             if (SuperTimer <= 0f) State = PlayerState.Normal;
         }
 
-        // ---- Lamber katana (windup do Super) ----
         if (State == PlayerState.LickingKatana)
         {
             _lickTimer -= dt;
@@ -85,12 +193,14 @@ public class Player
                 State = PlayerState.Super;
                 SuperTimer = SuperDuration;
                 Souls = 0;
+
+                // ⭐ Super concede o escudo (não regenera vida)
+                Shield = true;
             }
             return;
         }
 
-        // ---- Ativar Super ----
-        if (input.SuperPressed && Souls >= SoulsToSuper && State == PlayerState.Normal)
+        if (input.SuperPressed && SuperReady && State == PlayerState.Normal)
         {
             State = PlayerState.LickingKatana;
             _lickTimer = LickDuration;
@@ -120,7 +230,6 @@ public class Player
         }
         else
         {
-            // ---- Horizontal ----
             float targetX = input.MoveXInt * RunSpeed;
             float accel = _onGround
                 ? (input.MoveXInt != 0 ? RunAccel : RunDeccel)
@@ -128,13 +237,11 @@ public class Player
             Velocity.X = MathUtil.Approach(Velocity.X, targetX, accel * dt);
             if (input.MoveXInt != 0) Facing = input.MoveXInt;
 
-            // ---- Gravidade ----
             float g = Gravity;
             if (Velocity.Y < 0 && input.JumpHeld) g *= 0.5f;
             if (MathF.Abs(Velocity.Y) < 40f && input.JumpHeld) g *= 0.5f;
             Velocity.Y = MathF.Min(Velocity.Y + g * dt, MaxFall);
 
-            // ---- Wall slide ----
             _wallDir = DetectWall(level);
             if (!_onGround && _wallDir != 0 && input.MoveXInt == _wallDir && Velocity.Y > 0)
             {
@@ -146,7 +253,6 @@ public class Player
                 State = PlayerState.Normal;
             }
 
-            // ---- Pulo ----
             if (_jumpBuf > 0f)
             {
                 if (_coyote > 0f)
@@ -164,7 +270,6 @@ public class Player
                 }
             }
 
-            // Pulo variável
             if (_varJump > 0f)
             {
                 if (!input.JumpHeld) _varJump = 0f;
@@ -172,14 +277,13 @@ public class Player
             }
         }
 
-        // ---- Mover + colidir ----
         MoveX(Velocity.X * dt, level);
         MoveY(Velocity.Y * dt, level);
 
         if (_onGround) HasDashAvailable = true;
+        if (!IsAttacking) HasHitThisSwing = false;
     }
 
-    // ---------- Colisão ----------
     private int DetectWall(Level level)
     {
         var r = Bounds;

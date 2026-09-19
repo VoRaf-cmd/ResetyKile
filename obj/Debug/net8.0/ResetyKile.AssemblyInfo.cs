@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("ResetyKile")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+faa99d43f9ca41fe739fa1e96e288511e9b4fba4")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e4bc3951792cbe7fea881fe1b0516f85ee66d464")]
 [assembly: System.Reflection.AssemblyProductAttribute("ResetyKile")]
 [assembly: System.Reflection.AssemblyTitleAttribute("ResetyKile")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
