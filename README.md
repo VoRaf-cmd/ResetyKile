@@ -1,241 +1,249 @@
 # ResetyKile
 
-Jogo de plataforma 2D em pixel art, feito **100% em C# puro** (sem engine gráfica),
-usando **Raylib-cs** como biblioteca de renderização/input. Desenvolvido solo por Rafael.
+Jogo de plataforma 2D em pixel art, feito em C# puro com Raylib-cs.
+Sem engine gráfica. Desenvolvido solo por Rafael (VoRaf-cmd).
 
-**Inspiração principal:** Celeste (gamefeel, dash, wall jump, precisão).
-**Diferencial:** protagonista com katana, sistema de almas, modo Super com escudo,
-e foco extremo em **efeitos visuais / juice / dopamina visual**.
+Inspiração: Celeste (gamefeel, dash, wall jump).
+Diferencial: Kile (espadachim com katana), sistema de almas,
+modo Super com escudo, e foco em juice / dopamina visual.
 
----
-
-## 🎮 Status atual do projeto
-
-**Fase:** Protótipo jogável — combate core funcional, sem arte final, sem áudio.
-
-### ✅ Já implementado
-
-- **Janela pixel-perfect** (canvas interno 320×180 escalado, sem filtro)
-- **Timestep fixo** (1/120s) com accumulator pattern
-- **Input unificado:** teclado (WASD) + Xbox + PlayStation
-- **Física do jogador (Kile):**
-  - Corrida com aceleração/desaceleração
-  - Pulo com altura variável (segurar = mais alto)
-  - **Coyote time** (0.1s) e **Jump buffer** (0.1s)
-  - **Dash em 8 direções** com cooldown, reset ao tocar o chão
-  - **Wall slide + Wall jump**
-- **Combate:**
-  - Ataque de katana (hitbox à frente do Kile)
-  - Inimigos com **2 HP** e IA de patrulha + perseguição (raio de detecção)
-  - **Dano dividido:** se N inimigos estão na hitbox, cada um leva `dano / N`
-  - Inimigos respawnam (APENAS PARA TESTE — no jogo final são finitos)
-- **Vida e dano:**
-  - Kile tem **5 HP**
-  - Invencibilidade de 1s pós-dano (com pisca-pisca visual)
-  - Knockback ao levar dano
-  - Morte → tela "Voce morreu..." → respawn após 1.5s
-- **Sistema de Souls:**
-  - Cada inimigo morto = **1 soul**
-  - Barra enche em **10 souls** = super pronto
-  - Ao ativar super: **Souls zeram**
-- **Modo Super (tecla E / B ou Circle no controle):**
-  - Kile faz animação de "lamber a katana" (0.6s windup)
-  - Dura 8 segundos
-  - Kile fica rosa + aura quadrada pulsante
-  - **Concede escudo:** o último coração cheio fica prateado pulsando
-  - Escudo absorve 1 hit inteiro e quebra (não perde HP)
-  - **NÃO regenera vida** (cura virá de itens no futuro)
-- **HUD unificada (`UI/Hud.cs`):**
-  - Linha 1: 5 corações (vermelho cheio / cinza vazio / prata com escudo)
-  - Linha 2: 10 slots de soul (dourado / rosa quando pronto / cinza vazio)
-  - Barra de tempo do super quando ativo
-- **Animações com `time`** — coração do escudo pulsa, aura do super pulsa
-
-### 🚧 Ainda NÃO implementado (roadmap)
-
-- **Juice** (próximo passo): screenshake, hitstop, flash branco, rastro de dash,
-  partículas, zoom punch, flash no hit
-- **Sistema de animação** (SpriteSheet + AnimationPlayer com eventos de frame)
-- **Combate 2.0:** inimigo telegrafa ataque, dash ofensivo, super com dano em área,
-  inimigos voadores/atiradores
-- **Tilemap via Tiled** (editor visual de fase)
-- **Áudio** (sfx + música — o Rafael vai produzir a trilha)
-- **Sistema de progressão:**
-  - Checkpoints estilo Undertale (áreas seguras)
-  - Baús tipo "Ender Chest" nesses checkpoints (guardar itens)
-  - Itens de cura no inventário
-  - Mundo contínuo, sem separação de fases/menu, progressão narrativa
-- **Menu / Pause / Game Over reais**
-- **Port** (futuro, inicialmente só Windows)
+Repo: https://github.com/VoRaf-cmd/ResetyKile
 
 ---
 
-## 🗂️ Estrutura do projeto
+## STATUS
+
+Pré-alpha. Combate core funcional, sem arte final, sem áudio.
+Foco atual: gamefeel e juice.
+
+---
+
+## JÁ IMPLEMENTADO
+
+### Motor
+- Loop com timestep fixo (1/120s)
+- Renderização pixel-perfect (320x180 escalado)
+- Input unificado: teclado + Xbox + PlayStation
+
+### Kile (Player)
+- Corrida com aceleração/desaceleração
+- Pulo variável (segurar = mais alto)
+- Coyote time (0.1s) e jump buffer (0.1s)
+- Dash em 8 direções
+- Wall slide + wall jump
+- Stamina de dash: 3 raios, regenera no chão (1.2s/raio) e no ar (3s/raio)
+
+### Combate
+- Ataque de katana (hitbox à frente)
+- Ataque normal: dano dividido entre inimigos na hitbox
+- Dano base: 2.0 (mata 1 inimigo de 2 HP sozinho)
+- Dash-attack: hit kill em até 2 inimigos mais próximos,
+  dano residual (0.5) nos demais se 3+
+- Custo do dash normal: 1.0 raio
+- Custo do dash-attack: 1.5 raio
+- Inimigos com 2 HP, IA de patrulha + perseguição
+- Knockback nos inimigos ao tomar hit
+- Separação leve entre inimigos sobrepostos + stacking visual
+- Inimigos respawnam (APENAS PARA TESTE - no jogo final são finitos)
+
+### Vida e dano
+- Vida máxima: 20 pontos (5 corações, 4 pontos por coração)
+- Dano de inimigo comum: 2 (meio coração)
+- Invencibilidade de 1s pós-dano (com pisca-pisca)
+- Knockback ao levar dano
+- Morte: tela "Voce morreu..." -> respawn após 1.5s
+
+### Souls / Super
+- Souls: 10 no total, ganhas 1 por inimigo morto
+- Visual: 5 quadradinhos, cada um = 2 souls
+- Super ativa com 10 souls (tecla E / B ou Circle)
+- Animação de "lamber katana" (0.6s windup)
+- Duração: 8 segundos
+- Efeito: Kile fica rosa + aura quadrada pulsante
+- Concede ESCUDO: último coração cheio fica prateado pulsando
+- Escudo absorve 1 hit inteiro, quebra sem perder HP
+- Super NÃO regenera vida (cura virá de itens no futuro)
+- Super = stamina infinita durante o efeito
+
+### HUD (UI/Hud.cs)
+- Linha 1: 5 corações fracionados (25/50/75/100%)
+- Linha 2: 3 raios de stamina com animação de carga (tremida)
+- Linha 3: 5 quadradinhos de soul (meio-cheios quando 1 soul)
+- Barra de tempo do super quando ativo
+- Coração prateado pulsante quando tem escudo
+
+### Juice (Render/)
+- ScreenShake (trauma-based, decay 1.8/s)
+- HitStop / freeze frame (60-150ms em impactos)
+- Particles (burst por evento, pool de 512)
+- DashTrail (fantasmas ciano durante dash)
+- FloatingText (ex: "Damn!")
+- Flash branco em inimigos ao tomar hit (IsHurt)
+- Outline escura nos inimigos (corpo escurecido 35%)
+- Sombra sob inimigos
+
+### Regras especiais
+- "Damn!" aparece quando: Hp <= 4 (1 coração) OU acerta 2+ inimigos
+- Hitstop NÃO acontece durante dash-attack (pra não travar o movimento)
+- Dano dividido só em ataque normal
+- Dash-attack ignora divisão
+
+---
+
+## NÃO IMPLEMENTADO (roadmap)
+
+### Arte / Visual
+- Sistema de SpriteSheet + AnimationPlayer
+- Paleta de cores própria
+- Background / parallax
+
+### Combate expandido
+- Inimigos variados (voador, atirador, tanque)
+- Inimigo telegrafa ataque
+- Boss
+
+### Progressão (anotação importante)
+- Checkpoints estilo Undertale (áreas seguras)
+- Baús tipo Ender Chest nesses checkpoints
+- Itens de cura no inventário
+- Mundo contínuo, sem separação de fases/menu
+- Progressão narrativa
+- Inimigos finitos no jogo final (respawn é só pra teste)
+
+### Ferramentas
+- Tilemap via Tiled (editor visual de fase)
+- Áudio (SFX + trilha)
+- Menu / Pause / Game Over
+
+### Publish
+- Build final .exe pra Windows
+- itch.io (devlog)
+
+---
+
+## CONTROLES
+
+Ação         | Teclado         | Xbox              | PlayStation
+-------------|-----------------|-------------------|-------------------
+Mover        | A / D           | Analógico / D-pad | Analógico / D-pad
+Pular        | Espaço / C      | A                 | Cross
+Dash         | Shift / X       | X                 | Square
+Atacar       | Z / J           | Y                 | Triangle
+Super        | E / K           | B                 | Circle
+Pause        | Esc             | Start             | Options
+
+Dica: segura direção antes de apertar dash (8 direções).
+Sem direção, dash vai na direção que o Kile está virado.
+
+Dash-attack: aperta dash + ataque no mesmo tick.
+
+---
+
+## ESTRUTURA
+
 ResetyKile/
-├── ResetyKile.csproj ← .NET 8 + Raylib-cs 6.1.0
-├── Program.cs ← entry point + loop principal (timestep fixo)
-├── README.md ← este arquivo
-│
-├── Core/ ← sistemas base (independentes do jogo)
-│ ├── MathUtil.cs ← Approach, ExpLerp, Clamp
-│ ├── Renderer.cs ← canvas 320×180 pixel-perfect
-│ └── Input.cs ← input unificado teclado + gamepad
-│
-├── Entities/ ← tudo que "vive" no mundo
-│ ├── Player.cs ← o Kile (física, ataque, super, escudo)
-│ └── Enemy.cs ← inimigo patrulha/perseguição, 2 HP
-│
-├── World/ ← cenário
-│ └── Level.cs ← grid de tiles + colisão AABB
-│
+├── ResetyKile.csproj          - .NET 8 + Raylib-cs 6.1.0
+├── Program.cs                 - entry point + loop principal
+├── README.md                  - este arquivo
+├── Core/
+│   ├── MathUtil.cs            - Approach, ExpLerp, Clamp
+│   ├── Renderer.cs            - canvas 320x180 pixel-perfect
+│   └── Input.cs               - input unificado
+├── Entities/
+│   ├── Player.cs              - o Kile (física, ataque, super, escudo, stamina)
+│   └── Enemy.cs               - inimigo patrulha/perseguição, 2 HP, knockback
+├── World/
+│   └── Level.cs               - grid de tiles + colisão AABB
+├── Render/
+│   ├── ScreenShake.cs
+│   ├── HitStop.cs
+│   ├── Particles.cs
+│   ├── DashTrail.cs
+│   └── FloatingText.cs
 ├── UI/
-│ └── Hud.cs ← HUD unificada (vida + souls + super)
-│
-├── Render/ ← (vazio, futuro: juice e partículas)
-├── Audio/ ← (vazio, futuro)
-├── Data/ ← (vazio, futuro: configs, paleta)
-└── Assets/ ← (vazio, futuro: sprites, som, mapas)
+│   └── Hud.cs                 - HUD unificada
+├── Audio/                     - (vazio)
+├── Data/                      - (vazio)
+└── Assets/                    - (vazio)
 
-**Namespaces batem com pastas:**
-`ResetyKile`, `ResetyKile.Core`, `ResetyKile.Entities`, `ResetyKile.World`, `ResetyKile.UI`.
+Namespaces batem com pastas.
 
 ---
 
-## 🕹️ Controles
+## SETUP
 
-| Ação         | Teclado              | Xbox             | PlayStation      |
-|--------------|----------------------|------------------|------------------|
-| Mover        | A / D                | Analógico / D-pad| Analógico / D-pad|
-| Pular        | Espaço / C           | A                | Cross            |
-| Dash         | Shift / X            | X                | Square           |
-| Atacar       | Z / J                | Y                | Triangle         |
-| Super        | E / K                | B                | Circle           |
-| Pause        | Esc                  | Start            | Options          |
+Requer .NET SDK 8.
 
-**Dica pro dash:** segura uma direção (8 direções suportadas) antes de apertar.
-Sem direção, dá dash na direção que o Kile está virado.
-
----
-
-## 🧠 Decisões de design (importantes pra não esquecer)
-
-- **Unidade do mundo:** 1 tile = 8px. Resolução interna 320×180.
-- **Pulo alcança ~3-4 tiles.** Se mexer em `JumpSpeed` ou `Gravity`, refaz a conta:
-  `altura_máx_px = JumpSpeed² / (2 * Gravity)`.
-- **Inimigos com 2 HP** e dano dividido = se bater em vários de uma vez, não mata instantâneo.
-  Isso desencoraja "spammar ataque no bolo", premia isolamento.
-- **Super NÃO cura.** Cura virá de itens no inventário.
-- **Escudo do super** = absorve 1 hit, não perde HP, quebra visualmente.
-- **10 souls = super.** Não é pra farmar — o jogo vai ter progressão com poucos inimigos.
-- **Respawn de inimigo é só pra teste.** No jogo final eles são finitos.
-
----
-
-## ⚙️ Setup / Como rodar
-
-Requer .NET SDK 8 e Raylib-cs.
-
-```bash
 cd ResetyKile
 dotnet restore
 dotnet run
-```
 
-Compilar versão final (Windows)
+Build final (Windows):
 
-```bash
 dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true
-```
 
-O .exe sai em bin/Release/net8.0/win-x64/publish/.
+---
 
-🛠️ Notas técnicas / Armadilhas conhecidas
-Ambiguidade de Color: Raylib-cs tem construtores Color(byte,byte,byte,byte) e
-Color(int,int,int,int). Sempre que criar com literais, use (byte)255 no último
-argumento pra evitar erro CS0121.
+## NOTAS TÉCNICAS
 
-Entry point do C#: ao criar projeto com dotnet new console, o template inclui
-top-level statements (Console.WriteLine("Hello, World!");). Isso compila junto com
-uma classe Program e gera warning CS7022, além de ignorar o Main() da classe.
-Sempre remover o top-level statement.
+- Ambiguidade de Color: Raylib-cs tem construtores Color(byte,byte,byte,byte)
+  e Color(int,int,int,int). Sempre use (byte)255 no último argumento
+  pra evitar erro CS0121.
 
-Timestep fixo: o loop principal roda Update em passos de 1/120s, acumulando o
-frameDt. Não misture Raylib.GetFrameTime() dentro do Update — ele deve receber
-sempre FixedDt.
+- Entry point: ao criar projeto com 'dotnet new console', o template inclui
+  top-level statements que conflitam com uma classe Program. Sempre remover.
 
-Edge detection no input: JumpPressed, DashPressed, AttackPressed, SuperPressed
-são consumidos (setados pra false) dentro do loop fixo, pra não duplicar um toque
-rápido se um frame renderizar mais devagar.
+- Timestep fixo: Update roda em 1/120s. Não use Raylib.GetFrameTime() dentro
+  do Update. Sempre passe FixedDt.
 
-Movimento e colisão separados em eixos (MoveX depois MoveY). Nunca mova na
-diagonal de uma vez — quebra a colisão com tiles.
+- Edge detection no input: JumpPressed, DashPressed, AttackPressed, SuperPressed
+  são consumidos dentro do loop fixo pra não duplicar.
 
-📌 Instruções pra IA / continuidade do projeto
-Se você é uma IA lendo isso e o Rafael pediu pra continuar o projeto, contexto essencial:
+- Movimento e colisão em eixos separados (MoveX depois MoveY). Nunca diagonal
+  de uma vez.
 
-Não sugerir engine. Ele quer C# puro + Raylib-cs. Se ele pedir pra migrar, ele avisa.
+- Separação entre inimigos é LEVE (não é colisão real). Só empurra se
+  sobrepõem muito. Ajuste em Enemy.cs: MinSeparation (5f) e SeparateForce (40f).
 
-Rafael é iniciante em C#. Sempre mandar arquivos completos pra copiar e colar,
-nunca "adicionar linha X no método Y". Ele apaga o arquivo inteiro e cola o novo.
+- Parâmetros de tuning do Player ficam no topo da classe Player.cs.
 
-Sempre dizer qual arquivo e onde fica (caminho completo).
+- Parâmetros de dano e regras ficam no topo do Program.cs.
 
-Sempre dizer o que esperar ao rodar.
+---
 
-Ordem de juice: ele quer priorizar efeitos visuais / dopamina antes de arte final.
+## INSTRUÇÕES PRA IA / CONTINUIDADE
 
-Anotação de progressão futura (não esquecer):
+Se você é uma IA lendo isso e o Rafael pediu pra continuar:
 
-Checkpoints estilo Undertale (áreas seguras)
+1. NÃO sugerir engine. Ele quer C# puro + Raylib-cs.
+2. Rafael é iniciante em C#. Sempre mandar ARQUIVOS COMPLETOS pra copiar e colar,
+   nunca "adicionar linha X no método Y". Ele apaga o arquivo inteiro e cola o novo.
+   (Ou, se a mudança for MUITO pequena, usar Ctrl+F pra achar e trocar.)
+3. Sempre dizer qual arquivo e onde fica.
+4. Sempre dizer o que esperar ao rodar.
+5. Prioridade: juice e gamefeel antes de arte final.
+6. Idioma: português.
+7. Anotação de progressão futura (NÃO ESQUECER):
+   - Checkpoints estilo Undertale (áreas seguras)
+   - Baús tipo Ender Chest nesses checkpoints
+   - Itens de cura no inventário
+   - Mundo contínuo, progressão narrativa, sem "fases" separadas por menu
+   - Inimigos finitos no jogo final
+8. Ordem de trabalho combinada: terminar juice e combate core,
+   depois animação, depois Tilemap, depois áudio, depois progressão.
 
-Baús tipo Ender Chest nesses checkpoints
+---
 
-Itens de cura no inventário
+## HISTÓRICO DE MARCOS
 
-Mundo contínuo, progressão narrativa, sem "fases" separadas por menu
+- v0.1 - Fundação: janela, input, física do Kile, dash, wall jump, coyote
+- v0.2 - Combate: inimigos, ataque de katana, dano dividido, HUD vida/souls
+- v0.3 - Super + escudo: ativação, lamber katana, aura, coração prateado
+- v0.4 - Juice: screenshake, hitstop, partículas, dash trail, floating text, knockback
+- v0.5 - Stamina (3 raios), vida 20 pontos, souls 10 (5 quadradinhos),
+         dash-attack com hit kill em 2 + residual, HUD reformulada,
+         coração fracionado vertical, "Damn!" com 1 coração ou hit duplo
 
-Próximo passo combinado: JUICE — screenshake, hitstop, flash branco,
-rastro de dash, partículas, zoom punch.
-
-Idioma: Rafael é brasileiro, prefere português nas explicações.
-
-📝 Histórico de marcos
-v0.1 — Fundação: janela, input, física do Kile, dash, wall jump, coyote time
-
-v0.2 — Combate: inimigos, ataque de katana, dano dividido, HUD de vida e souls
-
-v0.3 — Super + escudo: ativação, lamber katana, aura, coração prateado
-
-v0.4 (próximo) — Juice: screenshake, hitstop, flash, partículas, rastro
+---
 
 Feito com muito café e vontade de fazer um jogo gostoso de jogar.
-
----
-
-## 📌 Como usar o README daqui pra frente
-
-**Salva como `README.md`** na raiz do projeto (`C:\Users\Rafael\ResetyKile\README.md`).
-
-Quando você voltar (hoje à noite, amanhã, semana que vem), faz isso:
-
-1. Abre uma conversa nova comigo
-2. Cola **só o conteúdo do README** (ou manda o arquivo)
-3. Diz: *"continua o ResetyKile, próximo passo: Juice"* (ou o que você quiser)
-
-Com isso eu **recupero todo o contexto** — as decisões técnicas, a nota de progressão, os nomes das classes, tudo. É a sua "cápsula do tempo".
-
----
-
-## 🎁 Bônus — o que fazer antes de sair
-
-Se quiser deixar tudo bem guardado:
-
-**1. Git (recomendo muito)** — se ainda não tem repositório:
-
-```bash
-cd C:\Users\Rafael\ResetyKile
-git init
-git add .
-git commit -m "v0.3 - Super + escudo + combate com dano dividido"#   R e s e t y K i l e 
- 
- 
