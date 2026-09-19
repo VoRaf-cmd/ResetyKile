@@ -1,3 +1,0 @@
-C:\Users\Rafael\ResetyKile\bin\Release\net8.0\win-x64\publish\ResetyKile.pdb
-C:\Users\Rafael\ResetyKile\bin\Release\net8.0\win-x64\publish\raylib.dll
-C:\Users\Rafael\ResetyKile\bin\Release\net8.0\win-x64\publish\ResetyKile.exe

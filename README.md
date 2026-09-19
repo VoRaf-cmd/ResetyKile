@@ -139,3 +139,98 @@ Requer .NET SDK 8 e Raylib-cs.
 cd ResetyKile
 dotnet restore
 dotnet run
+
+Compilar versão final (Windows)
+bash
+dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true
+O .exe sai em bin/Release/net8.0/win-x64/publish/.
+
+🛠️ Notas técnicas / Armadilhas conhecidas
+Ambiguidade de Color: Raylib-cs tem construtores Color(byte,byte,byte,byte) e
+Color(int,int,int,int). Sempre que criar com literais, use (byte)255 no último
+argumento pra evitar erro CS0121.
+
+Entry point do C#: ao criar projeto com dotnet new console, o template inclui
+top-level statements (Console.WriteLine("Hello, World!");). Isso compila junto com
+uma classe Program e gera warning CS7022, além de ignorar o Main() da classe.
+Sempre remover o top-level statement.
+
+Timestep fixo: o loop principal roda Update em passos de 1/120s, acumulando o
+frameDt. Não misture Raylib.GetFrameTime() dentro do Update — ele deve receber
+sempre FixedDt.
+
+Edge detection no input: JumpPressed, DashPressed, AttackPressed, SuperPressed
+são consumidos (setados pra false) dentro do loop fixo, pra não duplicar um toque
+rápido se um frame renderizar mais devagar.
+
+Movimento e colisão separados em eixos (MoveX depois MoveY). Nunca mova na
+diagonal de uma vez — quebra a colisão com tiles.
+
+📌 Instruções pra IA / continuidade do projeto
+Se você é uma IA lendo isso e o Rafael pediu pra continuar o projeto, contexto essencial:
+
+Não sugerir engine. Ele quer C# puro + Raylib-cs. Se ele pedir pra migrar, ele avisa.
+
+Rafael é iniciante em C#. Sempre mandar arquivos completos pra copiar e colar,
+nunca "adicionar linha X no método Y". Ele apaga o arquivo inteiro e cola o novo.
+
+Sempre dizer qual arquivo e onde fica (caminho completo).
+
+Sempre dizer o que esperar ao rodar.
+
+Ordem de juice: ele quer priorizar efeitos visuais / dopamina antes de arte final.
+
+Anotação de progressão futura (não esquecer):
+
+Checkpoints estilo Undertale (áreas seguras)
+
+Baús tipo Ender Chest nesses checkpoints
+
+Itens de cura no inventário
+
+Mundo contínuo, progressão narrativa, sem "fases" separadas por menu
+
+Próximo passo combinado: JUICE — screenshake, hitstop, flash branco,
+rastro de dash, partículas, zoom punch.
+
+Idioma: Rafael é brasileiro, prefere português nas explicações.
+
+📝 Histórico de marcos
+v0.1 — Fundação: janela, input, física do Kile, dash, wall jump, coyote time
+
+v0.2 — Combate: inimigos, ataque de katana, dano dividido, HUD de vida e souls
+
+v0.3 — Super + escudo: ativação, lamber katana, aura, coração prateado
+
+v0.4 (próximo) — Juice: screenshake, hitstop, flash, partículas, rastro
+
+Feito com muito café e vontade de fazer um jogo gostoso de jogar.
+
+---
+
+## 📌 Como usar o README daqui pra frente
+
+**Salva como `README.md`** na raiz do projeto (`C:\Users\Rafael\ResetyKile\README.md`).
+
+Quando você voltar (hoje à noite, amanhã, semana que vem), faz isso:
+
+1. Abre uma conversa nova comigo
+2. Cola **só o conteúdo do README** (ou manda o arquivo)
+3. Diz: *"continua o ResetyKile, próximo passo: Juice"* (ou o que você quiser)
+
+Com isso eu **recupero todo o contexto** — as decisões técnicas, a nota de progressão, os nomes das classes, tudo. É a sua "cápsula do tempo".
+
+---
+
+## 🎁 Bônus — o que fazer antes de sair
+
+Se quiser deixar tudo bem guardado:
+
+**1. Git (recomendo muito)** — se ainda não tem repositório:
+
+```bash
+cd C:\Users\Rafael\ResetyKile
+git init
+git add .
+git commit -m "v0.3 - Super + escudo + combate com dano dividido"#   R e s e t y K i l e  
+ 
