@@ -58,15 +58,22 @@ public static class Hud
     {
         int hearts = maxHp / 4;
 
+        // Descobre qual é o ÚLTIMO coração que tem vida (pra aplicar escudo)
+        // Ex: hp=7 -> corações com vida: 0 (4 pts) e 1 (3 pts). Último = índice 1.
+        int lastFilledHeartIndex = -1;
+        if (hp > 0)
+            lastFilledHeartIndex = (hp - 1) / 4;
+        if (lastFilledHeartIndex >= hearts) lastFilledHeartIndex = hearts - 1;
+
         for (int i = 0; i < hearts; i++)
         {
             int hx = x + i * (SlotSize + SlotGap);
             int hpNoCoracao = hp - (i * 4);
 
-            bool isTopHeart = (i == hearts - 1 && shield && hpNoCoracao > 0);
-            Color fillColor;
+            bool hasShieldHere = shield && i == lastFilledHeartIndex && hpNoCoracao > 0;
 
-            if (isTopHeart)
+            Color fillColor;
+            if (hasShieldHere)
             {
                 float pulse = (MathF.Sin(time * 6f) + 1f) * 0.5f;
                 fillColor = LerpColor(HeartShieldDark, HeartShield, pulse);
@@ -92,7 +99,6 @@ public static class Hud
     private static void DrawHeartWithFill(int x, int y, int size, int fill, Color fullColor)
     {
         Raylib.DrawRectangle(x - 1, y - 1, size + 2, size + 2, Outline);
-
         DrawHeartMask(x, y, size, HeartEmpty, 5);
 
         if (fill > 0)
@@ -138,7 +144,7 @@ public static class Hud
     }
 
     // ============================================================
-    // STAMINA (raios) — tremida mais visível
+    // STAMINA
     // ============================================================
     private static readonly string[] BoltMask =
     {
@@ -172,8 +178,6 @@ public static class Hud
                 color = BoltEmpty;
             }
 
-            // Tremida mais visível: 2px, horizontal + vertical,
-            // frequência diferente por raio (i) pra não sincronizar
             int shakeX = 0;
             int shakeY = 0;
             if (charging)

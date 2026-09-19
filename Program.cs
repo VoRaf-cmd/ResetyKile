@@ -14,11 +14,10 @@ public static class Program
     private const float MaxFrameDt   = 0.25f;
     private const float PlayerRespawnDelay = 1.5f;
 
-    // Dano
-    private const float NormalAttackDamage   = 2.0f;  // dano base (mata 1 inimigo se sozinho)
-    private const float DashAttackDamage     = 2.0f;  // dano do dash-attack em cada alvo prioritário
-    private const float DashAttackResidual   = 0.5f;  // dano residual nos outros quando 3+
-    private const int   DashAttackMaxKills   = 2;     // máximo de kills por dash-attack
+    private const float NormalAttackDamage   = 2.0f;
+    private const float DashAttackDamage     = 2.0f;
+    private const float DashAttackResidual   = 0.5f;
+    private const int   DashAttackMaxKills   = 2;
 
     private const float KnockbackStrength = 140f;
 
@@ -33,6 +32,7 @@ public static class Program
         var particles    = new Particles();
         var dashTrail    = new DashTrail();
         var floatingText = new FloatingText();
+        var stats        = new SessionStats();
 
         var level       = Level.TestRoom();
         var playerSpawn = new Vector2(64, 64);
@@ -66,11 +66,15 @@ public static class Program
         bool  playerIsDead = false;
         int dashTrailCounter = 0;
 
+        // Tempo de sessão (em segundos)
+        float sessionTime = 0f;
+
         while (!Raylib.WindowShouldClose())
         {
             float frameDt = MathF.Min(Raylib.GetFrameTime(), MaxFrameDt);
             float now = (float)Raylib.GetTime();
             accumulator += frameDt;
+            sessionTime += frameDt;
 
             var input = Input.Read();
 
@@ -94,9 +98,7 @@ public static class Program
                 player.Update(FixedDt, input, level);
                 player.TryAttack(input);
 
-                // ============================================================
-                // ATAQUE
-                // ============================================================
+                // ---- Ataque ----
                 if (player.IsAttacking && !player.HasHitThisSwing)
                 {
                     var hitbox = player.AttackHitbox;
@@ -113,20 +115,12 @@ public static class Program
                     {
                         bool isDashAttack = player.IsDashing;
                         bool isDoubleHit  = hitTargets.Count >= 2;
-                        int kbDir = player.Facing;
 
                         if (isDashAttack)
-                        {
-                            // ---- DASH-ATTACK: mata até 2 mais próximos + residual nos outros ----
-                            ProcessDashAttack(hitTargets, player, shake, hitStop, particles);
-                        }
+                            ProcessDashAttack(hitTargets, player, shake, hitStop, particles, stats, floatingText);
                         else
-                        {
-                            // ---- ATAQUE NORMAL: dano dividido ----
-                            ProcessNormalAttack(hitTargets, player, shake, hitStop, particles);
-                        }
+                            ProcessNormalAttack(hitTargets, player, shake, hitStop, particles, stats, floatingText);
 
-                        // "Damn!" — Hp <= 4 OU 2+ inimigos
                         if (player.Hp <= 4 || isDoubleHit)
                         {
                             floatingText.Spawn("Damn!", player.Position + new Vector2(0f, -14f),
@@ -184,6 +178,8 @@ public static class Program
                     hitStop.Trigger(0.15f);
                     particles.Burst(player.Position, 20, new Color((byte)255, (byte)60, (byte)100, (byte)255),
                                     80f, 180f, 0.7f, gravity: 400f, size: 2f);
+                    // Reseta pontos ao morrer (decisão temporária)
+                    stats.ResetPoints();
                 }
 
                 if (playerIsDead)
@@ -292,6 +288,7 @@ public static class Program
             Raylib.EndMode2D();
 
             Hud.Draw(player, now);
+            SessionStats.Draw(stats, sessionTime);
 
             if (playerIsDead)
             {
@@ -310,10 +307,11 @@ public static class Program
     }
 
     // ============================================================
-    // ATAQUE NORMAL — dano dividido
+    // ATAQUE NORMAL
     // ============================================================
     private static void ProcessNormalAttack(List<Enemy> hitTargets, Player player,
-        ScreenShake shake, HitStop hitStop, Particles particles)
+        ScreenShake shake, HitStop hitStop, Particles particles,
+        SessionStats stats, FloatingText floatingText)
     {
         bool isDoubleHit = hitTargets.Count >= 2;
         float dmgPerEnemy = NormalAttackDamage / hitTargets.Count;
@@ -341,10 +339,14 @@ public static class Program
             if (died)
             {
                 player.AddSoul(1);
+                stats.RegisterKill(false);
                 shake.AddTrauma(0.35f);
                 hitStop.Trigger(0.08f);
                 particles.Burst(e.Position, 12, new Color((byte)255, (byte)120, (byte)120, (byte)255),
                                 60f, 140f, 0.5f, gravity: 400f, size: 2f);
+
+                floatingText.Spawn("+5", e.Position + new Vector2(0f, -10f),
+                    new Color((byte)255, (byte)220, (byte)100, (byte)255), 0.6f);
             }
             else
             {
@@ -356,14 +358,14 @@ public static class Program
     }
 
     // ============================================================
-    // DASH-ATTACK — hit kill em até 2 mais próximos + residual
+    // DASH-ATTACK
     // ============================================================
     private static void ProcessDashAttack(List<Enemy> hitTargets, Player player,
-        ScreenShake shake, HitStop hitStop, Particles particles)
+        ScreenShake shake, HitStop hitStop, Particles particles,
+        SessionStats stats, FloatingText floatingText)
     {
         int kbDir = player.Facing;
 
-        // Ordena por distância ao player (mais próximos primeiro)
         var sorted = new List<Enemy>(hitTargets);
         sorted.Sort((a, b) =>
         {
@@ -372,7 +374,6 @@ public static class Program
             return da.CompareTo(db);
         });
 
-        // Juice do dash-attack (sem hitstop pra não travar)
         shake.AddTrauma(0.5f);
         particles.Burst(player.Position, 16, new Color((byte)140, (byte)230, (byte)255, (byte)255),
                         80f, 180f, 0.4f, gravity: 300f, size: 2f);
@@ -385,7 +386,6 @@ public static class Program
 
             if (killCount < DashAttackMaxKills)
             {
-                // Mata (dano alto)
                 bool died = e.TakeDamage(DashAttackDamage);
                 e.ApplyKnockback(kbDir, KnockbackStrength * 1.3f);
 
@@ -393,27 +393,32 @@ public static class Program
                 {
                     killCount++;
                     player.AddSoul(1);
+                    stats.RegisterKill(true);
                     particles.Burst(e.Position, 14, new Color((byte)255, (byte)120, (byte)120, (byte)255),
                                     70f, 160f, 0.5f, gravity: 400f, size: 2f);
+
+                    floatingText.Spawn("+10", e.Position + new Vector2(0f, -10f),
+                        new Color((byte)140, (byte)230, (byte)255, (byte)255), 0.7f);
                 }
             }
             else
             {
-                // Dano residual
                 bool died = e.TakeDamage(DashAttackResidual);
                 e.ApplyKnockback(kbDir, KnockbackStrength);
 
                 if (died)
                 {
-                    // Se o residual matou (raro, inimigo já tava ferido)
                     killCount++;
                     player.AddSoul(1);
+                    stats.RegisterKill(true);
                     particles.Burst(e.Position, 14, new Color((byte)255, (byte)120, (byte)120, (byte)255),
                                     70f, 160f, 0.5f, gravity: 400f, size: 2f);
+
+                    floatingText.Spawn("+10", e.Position + new Vector2(0f, -10f),
+                        new Color((byte)140, (byte)230, (byte)255, (byte)255), 0.7f);
                 }
                 else
                 {
-                    // Sobreviveu: burst laranja (feedback do residual)
                     particles.Burst(e.Position, 6, new Color((byte)255, (byte)180, (byte)80, (byte)255),
                                     50f, 100f, 0.3f, gravity: 300f, size: 1f);
                 }

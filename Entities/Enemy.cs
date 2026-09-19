@@ -24,8 +24,11 @@ public class Enemy
     private const float SeparateForce = 40f;
 
     // Knockback
-    private const float KnockbackDecel = 600f;   // desaceleração horizontal
-    private const float KnockbackMinSpeed = 10f; // abaixo disso, IA retoma controle
+    private const float KnockbackDecel = 600f;
+    private const float KnockbackMinSpeed = 10f;
+
+    // Anti-travamento
+    private const float StuckTime = 0.6f;   // tempo preso na parede antes de virar
 
     public const float MaxHp = 2.0f;
 
@@ -46,6 +49,7 @@ public class Enemy
     private int  _wallDir;
     private float _deathTimer;
     private float _hurtTimer;
+    private float _stuckTimer;   // tempo tentando andar contra parede
     private readonly Level _level;
 
     public Rectangle Bounds => new(Position.X - Size.X / 2f, Position.Y - Size.Y / 2f, Size.X, Size.Y);
@@ -78,12 +82,11 @@ public class Enemy
         return false;
     }
 
-    /// Empurra o inimigo na direção 'dirX' (-1 ou +1) com força.
     public void ApplyKnockback(int dirX, float strength)
     {
         if (!IsAlive) return;
         Velocity.X = dirX * strength;
-        Velocity.Y = -60f; // pulinho
+        Velocity.Y = -60f;
     }
 
     public void Kill()
@@ -98,7 +101,6 @@ public class Enemy
     {
         _hurtTimer = MathF.Max(0f, _hurtTimer - dt);
 
-        // ---------- Respawn ----------
         if (State == EnemyState.Dead)
         {
             RespawnTimer -= dt;
@@ -108,11 +110,11 @@ public class Enemy
                 Velocity = Vector2.Zero;
                 Hp = MaxHp;
                 State = EnemyState.Patrol;
+                _stuckTimer = 0f;
             }
             return;
         }
 
-        // ---------- Morrendo ----------
         if (State == EnemyState.Dying)
         {
             _deathTimer -= dt;
@@ -135,21 +137,16 @@ public class Enemy
 
         float speed = State == EnemyState.Chase ? ChaseSpeed : PatrolSpeed;
 
-        // ---------- Knockback vs IA ----------
-        // Se a velocidade horizontal é alta (veio de knockback),
-        // aplica atrito e NÃO sobrescreve com IA
         bool inKnockback = MathF.Abs(Velocity.X) > KnockbackMinSpeed;
 
         if (inKnockback)
         {
-            // Aplica atrito
             float sign = MathF.Sign(Velocity.X);
-            Velocity.X = MathUtil_Approach(Velocity.X, 0f, KnockbackDecel * dt);
+            Velocity.X = Approach(Velocity.X, 0f, KnockbackDecel * dt);
             if (MathF.Sign(Velocity.X) != sign) Velocity.X = 0f;
         }
         else
         {
-            // IA controla normalmente
             if (State == EnemyState.Chase)
             {
                 int dir = playerPos.X > Position.X ? 1 : -1;
@@ -170,22 +167,53 @@ public class Enemy
         // ---------- Comportamento com parede/beirada ----------
         if (State == EnemyState.Patrol && !inKnockback)
         {
-            if (_wallDir != 0) Facing = -_wallDir;
-            if (_onGround)
+            if (_wallDir != 0)
+            {
+                Facing = -_wallDir;
+                _stuckTimer = 0f;
+            }
+            else if (_onGround)
             {
                 var frontFoot = new Rectangle(
                     Facing > 0 ? Bounds.X + Bounds.Width : Bounds.X - 2f,
                     Bounds.Y + Bounds.Height,
                     2f, 2f);
-                if (!_level.CollidesAny(frontFoot)) Facing = -Facing;
+                if (!_level.CollidesAny(frontFoot))
+                {
+                    Facing = -Facing;
+                    _stuckTimer = 0f;
+                }
             }
         }
         else if (State == EnemyState.Chase && !inKnockback)
         {
-            if (_wallDir != 0 && _onGround) Velocity.Y = -160f;
+            // Em chase, se bate na parede:
+            if (_wallDir != 0)
+            {
+                _stuckTimer += dt;
+
+                // Primeiro tenta pular (se ainda não pulou)
+                if (_onGround && _stuckTimer < 0.15f)
+                {
+                    Velocity.Y = -160f;
+                }
+                // Se tá preso muito tempo, vira de lado mesmo
+                else if (_stuckTimer > StuckTime)
+                {
+                    Facing = -_wallDir;
+                    // Dá um pulinho pra ajudar a descolar
+                    if (_onGround) Velocity.Y = -140f;
+                    _stuckTimer = 0f;
+                }
+            }
+            else
+            {
+                _stuckTimer = 0f;
+            }
         }
     }
 
+    /// Separação leve entre inimigos — com checagem de tile pra não entrar em parede.
     public void SeparateFrom(List<Enemy> others, float dt)
     {
         if (!IsAlive) return;
@@ -209,7 +237,17 @@ public class Enemy
 
             float overlap = MinSeparation - adx;
             float push = SeparateForce * dt * (overlap / MinSeparation);
-            Position.X += pushDir * push;
+
+            // Tenta empurrar; se o destino colidir com tile, ignora
+            var testRect = new Rectangle(
+                Position.X + pushDir * push - Size.X / 2f,
+                Position.Y - Size.Y / 2f,
+                Size.X, Size.Y);
+
+            if (!_level.CollidesAny(testRect))
+            {
+                Position.X += pushDir * push;
+            }
         }
     }
 
@@ -243,8 +281,7 @@ public class Enemy
         }
     }
 
-    // Helper local (não pode usar MathUtil.Approach direto porque tá em Core)
-    private static float MathUtil_Approach(float v, float target, float maxDelta)
+    private static float Approach(float v, float target, float maxDelta)
     {
         if (v < target) return MathF.Min(v + maxDelta, target);
         if (v > target) return MathF.Max(v - maxDelta, target);
