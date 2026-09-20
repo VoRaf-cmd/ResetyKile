@@ -25,32 +25,32 @@ public class Player
     private const float DashSpeed     = 240f;
     private const float DashTime      = 0.15f;
 
-    // Super
     private const float LickDuration  = 0.6f;
     private const float SuperDuration = 8.0f;
     private const int   SoulsToSuper  = 10;
 
-    // Ataque
     private const float AttackDuration = 0.15f;
     private const float AttackCooldown = 0.25f;
     private const float AttackRange    = 21f;
     private const float AttackHeight   = 13f;
 
-    // Vida e dano
     public  const int   MaxHp              = 20;
     private const float InvulnDuration     = 1.0f;
     private const float KnockbackX         = 120f;
     private const float KnockbackY         = -90f;
 
-    // Stamina
     public  const int   MaxStamina         = 3;
     public  const float DashCost           = 1.0f;
     public  const float DashAttackCost     = 1.5f;
     public  const float StaminaRegenGround = 1f / 1.2f;
     public  const float StaminaRegenAir    = 1f / 3.0f;
 
-    // Sprite
-    public const int SpriteSize = 16;
+    // Sprite (16×24 agora)
+    public const int SpriteWidth  = 16;
+    public const int SpriteHeight = 24;
+
+    // Offset vertical do sprite (pra alinhar visualmente com a hitbox)
+    private const float SpriteYOffset = -6f;
 
     // ---------- Estado ----------
     public Vector2 Position;
@@ -80,11 +80,9 @@ public class Player
     public bool IsAttacking => _attackTimer > 0f;
     public bool HasHitThisSwing { get; private set; }
 
-    // ---------- Animação ----------
     private AnimationPlayer _anim = new();
     private Dictionary<string, Animation> _animations = new();
 
-    // ---------- API pública ----------
     public const int MaxSouls = 10;
 
     public Rectangle Bounds => new(Position.X - Size.X / 2f, Position.Y - Size.Y / 2f, Size.X, Size.Y);
@@ -102,9 +100,9 @@ public class Player
     {
         const string basePath = "Assets/sprites/kile";
 
-        // Cada animação tem cor placeholder diferente pra você identificar
         AddAnim("idle",       $"{basePath}/idle.png",      4, 0.15f, true,  new Color((byte)240, (byte)240, (byte)240, (byte)255));
-        AddAnim("run",        $"{basePath}/run.png",       6, 0.08f, true,  new Color((byte)120, (byte)220, (byte)255, (byte)255));
+        AddAnim("idle_b",       $"{basePath}/idle_b.png",      4, 0.15f, true,  new Color((byte)240, (byte)240, (byte)240, (byte)255));
+        AddAnim("run",        $"{basePath}/run.png",       6, 0.12f, true,  new Color((byte)120, (byte)220, (byte)255, (byte)255));
         AddAnim("jump",       $"{basePath}/jump.png",      2, 0.10f, false, new Color((byte)140, (byte)255, (byte)140, (byte)255));
         AddAnim("fall",       $"{basePath}/fall.png",      2, 0.15f, true,  new Color((byte)200, (byte)180, (byte)255, (byte)255));
         AddAnim("dash",       $"{basePath}/dash.png",      2, 0.10f, false, new Color((byte)120, (byte)220, (byte)255, (byte)255));
@@ -119,7 +117,7 @@ public class Player
 
     private void AddAnim(string name, string path, int defaultFrames, float frameDuration, bool loop, Color placeholder)
     {
-        var sheet = new SpriteSheet(path, SpriteSize, SpriteSize, placeholder);
+        var sheet = new SpriteSheet(path, SpriteWidth, SpriteHeight, placeholder);
         _animations[name] = new Animation(sheet, frameDuration, loop);
     }
 
@@ -202,7 +200,6 @@ public class Player
         Facing = 1;
     }
 
-    // ---------- Update ----------
     public void Update(float dt, InputState input, Level level)
     {
         _coyote      = _onGround ? CoyoteTime : MathF.Max(0, _coyote - dt);
@@ -260,7 +257,6 @@ public class Player
             State = PlayerState.LickingKatana;
             _lickTimer = LickDuration;
             Velocity = Vector2.Zero;
-            _anim.Play("lick", _animations["lick"], restart: true);
             UpdateAnimation(dt);
             return;
         }
@@ -279,7 +275,6 @@ public class Player
                     Stamina = MathF.Max(0f, Stamina - cost);
                 (_dashDirX, _dashDirY) = Input.DashDirection(input, Facing);
                 if (_dashDirX != 0) Facing = _dashDirX;
-                _anim.Play("dash", _animations["dash"], restart: true);
             }
         }
 
@@ -331,7 +326,6 @@ public class Player
                     Velocity.Y = -JumpSpeed;
                     _jumpBuf = 0f; _varJump = VarJumpTime;
                     Facing = -_wallDir;
-                    _anim.Play("wall_jump", _animations["wall_jump"], restart: true);
                 }
             }
 
@@ -349,7 +343,6 @@ public class Player
         UpdateAnimation(dt);
     }
 
-    // ---------- Animação ----------
     private void UpdateAnimation(float dt)
     {
         string targetAnim = ChooseAnimation();
@@ -361,14 +354,12 @@ public class Player
 
     private string ChooseAnimation()
     {
-        // Prioridade: ataques/super > dash > wall > jump/fall > idle/run
         if (State == PlayerState.LickingKatana) return "lick";
         if (State == PlayerState.Dead)          return "death";
         if (IsAttacking)                        return "attack";
         if (State == PlayerState.Dashing)       return "dash";
         if (State == PlayerState.WallSlide)     return "wall_slide";
         if (InvulnTimer > 0f && Hp > 0 && State == PlayerState.Normal) return "hurt";
-
         if (State == PlayerState.Super && MathF.Abs(Velocity.X) < 1f)  return "super_idle";
 
         if (!_onGround)
@@ -380,12 +371,6 @@ public class Player
         if (MathF.Abs(Velocity.X) > 5f) return "run";
         return "idle";
     }
-
-    /// Desenha o sprite do Kile, centralizado na hitbox.
-    /// Se estiver invulnerável, pisca.
-    // Offset vertical do sprite (pra alinhar com a hitbox)
-    // + = mais pra baixo
-    private const float SpriteYOffset = -2f;
 
     public void Draw(float gameTime)
     {
@@ -401,7 +386,6 @@ public class Player
             _                         => Color.White,
         };
 
-        // Desloca o sprite pra baixo (visual), sem mexer na hitbox (física)
         var drawPos = new Vector2(Position.X, Position.Y + SpriteYOffset);
         _anim.DrawCentered(drawPos, Facing < 0, tint);
     }
