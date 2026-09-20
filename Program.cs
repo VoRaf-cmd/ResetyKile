@@ -21,6 +21,8 @@ public static class Program
     private const int   DashAttackMaxKills   = 2;
 
     private const float KnockbackStrength = 140f;
+        // Câmera
+    private const float CameraZoom = 1.0f;   // 1.0 = Celeste puro. Aumente pra dar zoom in.
 
     // Estado de fullscreen
     private static bool _isBorderlessFullscreen = false;
@@ -121,7 +123,7 @@ public static class Program
         {
             Offset = new Vector2(Renderer.InternalW / 2f, Renderer.InternalH / 2f),
             Target = player.Position,
-            Zoom   = 1.5f,
+            Zoom   = 1.0f,
         };
 
         var hitTargets = new List<Enemy>(16);
@@ -338,28 +340,7 @@ public static class Program
 
             dashTrail.Draw();
 
-            // Kile
-            Color kileColor = player.State switch
-            {
-                PlayerState.Dashing       => new Color((byte)120, (byte)220, (byte)255, (byte)255),
-                PlayerState.LickingKatana => new Color((byte)255, (byte)220, (byte)120, (byte)255),
-                PlayerState.Super         => new Color((byte)255, (byte)90, (byte)180, (byte)255),
-                PlayerState.WallSlide     => new Color((byte)200, (byte)200, (byte)220, (byte)255),
-                PlayerState.Dead          => new Color((byte)120, (byte)40, (byte)60, (byte)255),
-                _                         => new Color((byte)240, (byte)240, (byte)240, (byte)255),
-            };
-
-            bool blink = player.InvulnTimer > 0f
-                      && ((int)(player.InvulnTimer * 20f) % 2 == 0);
-
-            if (!blink)
-            {
-                Raylib.DrawRectangleRec(player.Bounds, kileColor);
-
-                var r = player.Bounds;
-                float eyeX = player.Facing > 0 ? r.X + r.Width - 3f : r.X + 1f;
-                Raylib.DrawRectangle((int)eyeX, (int)(r.Y + 2f), 2, 2, Color.Black);
-            }
+            player.Draw(gameTime);
 
             particles.Draw();
             floatingText.Draw();

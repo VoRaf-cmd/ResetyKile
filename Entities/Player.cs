@@ -1,6 +1,7 @@
 using Raylib_cs;
 using System.Numerics;
 using ResetyKile.Core;
+using ResetyKile.Render;
 using ResetyKile.World;
 
 namespace ResetyKile.Entities;
@@ -41,12 +42,15 @@ public class Player
     private const float KnockbackX         = 120f;
     private const float KnockbackY         = -90f;
 
-    // Stamina de dash
+    // Stamina
     public  const int   MaxStamina         = 3;
     public  const float DashCost           = 1.0f;
     public  const float DashAttackCost     = 1.5f;
     public  const float StaminaRegenGround = 1f / 1.2f;
     public  const float StaminaRegenAir    = 1f / 3.0f;
+
+    // Sprite
+    public const int SpriteSize = 16;
 
     // ---------- Estado ----------
     public Vector2 Position;
@@ -76,6 +80,10 @@ public class Player
     public bool IsAttacking => _attackTimer > 0f;
     public bool HasHitThisSwing { get; private set; }
 
+    // ---------- Animação ----------
+    private AnimationPlayer _anim = new();
+    private Dictionary<string, Animation> _animations = new();
+
     // ---------- API pública ----------
     public const int MaxSouls = 10;
 
@@ -84,6 +92,43 @@ public class Player
     public bool IsDashing => State == PlayerState.Dashing;
     public bool SuperReady => Souls >= MaxSouls;
     public bool CanDash(float cost) => Stamina >= cost || State == PlayerState.Super;
+
+    public Player()
+    {
+        LoadAnimations();
+    }
+
+    private void LoadAnimations()
+    {
+        const string basePath = "Assets/sprites/kile";
+
+        // Cada animação tem cor placeholder diferente pra você identificar
+        AddAnim("idle",       $"{basePath}/idle.png",      4, 0.15f, true,  new Color((byte)240, (byte)240, (byte)240, (byte)255));
+        AddAnim("run",        $"{basePath}/run.png",       6, 0.08f, true,  new Color((byte)120, (byte)220, (byte)255, (byte)255));
+        AddAnim("jump",       $"{basePath}/jump.png",      2, 0.10f, false, new Color((byte)140, (byte)255, (byte)140, (byte)255));
+        AddAnim("fall",       $"{basePath}/fall.png",      2, 0.15f, true,  new Color((byte)200, (byte)180, (byte)255, (byte)255));
+        AddAnim("dash",       $"{basePath}/dash.png",      2, 0.10f, false, new Color((byte)120, (byte)220, (byte)255, (byte)255));
+        AddAnim("wall_slide", $"{basePath}/wall_slide.png",2, 0.15f, true,  new Color((byte)200, (byte)200, (byte)220, (byte)255));
+        AddAnim("wall_jump",  $"{basePath}/wall_jump.png", 2, 0.10f, false, new Color((byte)160, (byte)220, (byte)160, (byte)255));
+        AddAnim("attack",     $"{basePath}/attack.png",    4, 0.04f, false, new Color((byte)255, (byte)220, (byte)120, (byte)255));
+        AddAnim("lick",       $"{basePath}/lick.png",      6, 0.10f, false, new Color((byte)255, (byte)200, (byte)140, (byte)255));
+        AddAnim("super_idle", $"{basePath}/super_idle.png",4, 0.15f, true,  new Color((byte)255, (byte)90, (byte)180, (byte)255));
+        AddAnim("hurt",       $"{basePath}/hurt.png",      2, 0.10f, false, new Color((byte)255, (byte)100, (byte)100, (byte)255));
+        AddAnim("death",      $"{basePath}/death.png",     6, 0.15f, false, new Color((byte)120, (byte)40, (byte)60, (byte)255));
+    }
+
+    private void AddAnim(string name, string path, int defaultFrames, float frameDuration, bool loop, Color placeholder)
+    {
+        var sheet = new SpriteSheet(path, SpriteSize, SpriteSize, placeholder);
+        _animations[name] = new Animation(sheet, frameDuration, loop);
+    }
+
+    public void UnloadAnimations()
+    {
+        foreach (var anim in _animations.Values)
+            anim.Sheet.Dispose();
+        _animations.Clear();
+    }
 
     public void AddSoul(int amount = 1)
         => Souls = Math.Clamp(Souls + amount, 0, MaxSouls);
@@ -174,6 +219,7 @@ public class Player
             MoveX(Velocity.X * dt, level);
             MoveY(Velocity.Y * dt, level);
             Velocity.X = MathUtil.Approach(Velocity.X, 0f, RunDeccel * dt);
+            UpdateAnimation(dt);
             return;
         }
 
@@ -183,7 +229,6 @@ public class Player
             if (SuperTimer <= 0f) State = PlayerState.Normal;
         }
 
-        // ---- Regeneração de stamina ----
         if (State != PlayerState.Super && Stamina < MaxStamina)
         {
             float regenRate = _onGround ? StaminaRegenGround : StaminaRegenAir;
@@ -206,6 +251,7 @@ public class Player
                 Shield = true;
                 Stamina = MaxStamina;
             }
+            UpdateAnimation(dt);
             return;
         }
 
@@ -214,11 +260,11 @@ public class Player
             State = PlayerState.LickingKatana;
             _lickTimer = LickDuration;
             Velocity = Vector2.Zero;
+            _anim.Play("lick", _animations["lick"], restart: true);
+            UpdateAnimation(dt);
             return;
         }
 
-        // ---- Dash (custo variável: dash-attack custa mais) ----
-        // Se o jogador aperta dash + ataque no mesmo tick, cobra DashAttackCost
         bool attackBuffered = input.AttackPressed;
         bool wantDash = input.DashPressed && State != PlayerState.Dashing;
 
@@ -233,6 +279,7 @@ public class Player
                     Stamina = MathF.Max(0f, Stamina - cost);
                 (_dashDirX, _dashDirY) = Input.DashDirection(input, Facing);
                 if (_dashDirX != 0) Facing = _dashDirX;
+                _anim.Play("dash", _animations["dash"], restart: true);
             }
         }
 
@@ -284,6 +331,7 @@ public class Player
                     Velocity.Y = -JumpSpeed;
                     _jumpBuf = 0f; _varJump = VarJumpTime;
                     Facing = -_wallDir;
+                    _anim.Play("wall_jump", _animations["wall_jump"], restart: true);
                 }
             }
 
@@ -298,6 +346,64 @@ public class Player
         MoveY(Velocity.Y * dt, level);
 
         if (!IsAttacking) HasHitThisSwing = false;
+        UpdateAnimation(dt);
+    }
+
+    // ---------- Animação ----------
+    private void UpdateAnimation(float dt)
+    {
+        string targetAnim = ChooseAnimation();
+        if (_animations.TryGetValue(targetAnim, out var anim))
+            _anim.Play(targetAnim, anim);
+
+        _anim.Update(dt);
+    }
+
+    private string ChooseAnimation()
+    {
+        // Prioridade: ataques/super > dash > wall > jump/fall > idle/run
+        if (State == PlayerState.LickingKatana) return "lick";
+        if (State == PlayerState.Dead)          return "death";
+        if (IsAttacking)                        return "attack";
+        if (State == PlayerState.Dashing)       return "dash";
+        if (State == PlayerState.WallSlide)     return "wall_slide";
+        if (InvulnTimer > 0f && Hp > 0 && State == PlayerState.Normal) return "hurt";
+
+        if (State == PlayerState.Super && MathF.Abs(Velocity.X) < 1f)  return "super_idle";
+
+        if (!_onGround)
+        {
+            if (Velocity.Y < -10f) return "jump";
+            if (Velocity.Y >  10f) return "fall";
+        }
+
+        if (MathF.Abs(Velocity.X) > 5f) return "run";
+        return "idle";
+    }
+
+    /// Desenha o sprite do Kile, centralizado na hitbox.
+    /// Se estiver invulnerável, pisca.
+    // Offset vertical do sprite (pra alinhar com a hitbox)
+    // + = mais pra baixo
+    private const float SpriteYOffset = -2f;
+
+    public void Draw(float gameTime)
+    {
+        bool blink = InvulnTimer > 0f
+                  && ((int)(InvulnTimer * 20f) % 2 == 0);
+
+        if (blink) return;
+
+        Color tint = State switch
+        {
+            PlayerState.Super         => new Color((byte)255, (byte)180, (byte)230, (byte)255),
+            PlayerState.Dead          => new Color((byte)150, (byte)100, (byte)120, (byte)255),
+            _                         => Color.White,
+        };
+
+        // Desloca o sprite pra baixo (visual), sem mexer na hitbox (física)
+        var drawPos = new Vector2(Position.X, Position.Y + SpriteYOffset);
+        _anim.DrawCentered(drawPos, Facing < 0, tint);
     }
 
     private int DetectWall(Level level)

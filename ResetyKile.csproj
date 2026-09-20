@@ -16,4 +16,11 @@
     <PackageReference Include="Raylib-cs" Version="6.1.0" />
   </ItemGroup>
 
+  <!-- Copia Assets/ pro build (sprites, sons, mapas, etc) -->
+  <ItemGroup>
+    <None Update="Assets\**\*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
