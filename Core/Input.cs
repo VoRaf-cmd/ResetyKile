@@ -21,14 +21,18 @@ public static class Input
 {
     private const GamepadButton GP_Jump   = GamepadButton.RightFaceDown;   // A / Cross
     private const GamepadButton GP_Dash   = GamepadButton.RightFaceLeft;   // X / Square
-    private const GamepadButton GP_Attack = GamepadButton.RightFaceUp;     // Y / Triangle
     private const GamepadButton GP_Super  = GamepadButton.RightFaceRight;  // B / Circle
     private const GamepadButton GP_Pause  = GamepadButton.MiddleRight;     // Start / Options
 
     private const GamepadAxis GP_AX_LX = GamepadAxis.LeftX;
     private const GamepadAxis GP_AX_LY = GamepadAxis.LeftY;
+    private const GamepadAxis GP_AX_RT = GamepadAxis.RightTrigger;
 
-    private const float Deadzone = 0.25f;
+    private const float Deadzone        = 0.25f;
+    private const float TriggerDeadzone = 0.5f;
+
+    // Cache do estado anterior do gatilho (pra edge detection)
+    private static bool _prevTriggerDown = false;
 
     public static InputState Read()
     {
@@ -37,8 +41,8 @@ public static class Input
 
         // ---- Eixo X ----
         float mx = 0f;
-        if (Raylib.IsKeyDown(KeyboardKey.Left)  || Raylib.IsKeyDown(KeyboardKey.A)) mx -= 1f;
-        if (Raylib.IsKeyDown(KeyboardKey.Right) || Raylib.IsKeyDown(KeyboardKey.D)) mx += 1f;
+        if (Raylib.IsKeyDown(KeyboardKey.A)) mx -= 1f;
+        if (Raylib.IsKeyDown(KeyboardKey.D)) mx += 1f;
 
         if (padOn)
         {
@@ -66,11 +70,21 @@ public static class Input
         s.DashPressed = Raylib.IsKeyPressed(KeyboardKey.LeftShift) || Raylib.IsKeyPressed(KeyboardKey.X)
                      || (padOn && Raylib.IsGamepadButtonPressed(0, GP_Dash));
 
-        // ---- Attack ----
-        s.AttackHeld    = Raylib.IsKeyDown(KeyboardKey.Z) || Raylib.IsKeyDown(KeyboardKey.J)
-                       || (padOn && Raylib.IsGamepadButtonDown(0, GP_Attack));
-        s.AttackPressed = Raylib.IsKeyPressed(KeyboardKey.Z) || Raylib.IsKeyPressed(KeyboardKey.J)
-                       || (padOn && Raylib.IsGamepadButtonPressed(0, GP_Attack));
+        // ---- Attack (RT / R2 — tratado como botão via gatilho analógico) ----
+        bool triggerDown = false;
+        if (padOn)
+        {
+            float triggerValue = Raylib.GetGamepadAxisMovement(0, GP_AX_RT);
+            triggerDown = triggerValue > TriggerDeadzone;
+        }
+
+        bool attackKeyDown     = Raylib.IsKeyDown(KeyboardKey.Z) || Raylib.IsKeyDown(KeyboardKey.J);
+        bool attackKeyPressed  = Raylib.IsKeyPressed(KeyboardKey.Z) || Raylib.IsKeyPressed(KeyboardKey.J);
+
+        s.AttackHeld    = attackKeyDown || triggerDown;
+        s.AttackPressed = attackKeyPressed || (triggerDown && !_prevTriggerDown);
+
+        _prevTriggerDown = triggerDown;
 
         // ---- Super ----
         s.SuperHeld    = Raylib.IsKeyDown(KeyboardKey.E) || Raylib.IsKeyDown(KeyboardKey.K)
@@ -90,10 +104,10 @@ public static class Input
         int x = 0, y = 0;
         bool padOn = Raylib.IsGamepadAvailable(0);
 
-        if (Raylib.IsKeyDown(KeyboardKey.Left)  || Raylib.IsKeyDown(KeyboardKey.A)) x -= 1;
-        if (Raylib.IsKeyDown(KeyboardKey.Right) || Raylib.IsKeyDown(KeyboardKey.D)) x += 1;
-        if (Raylib.IsKeyDown(KeyboardKey.Up)    || Raylib.IsKeyDown(KeyboardKey.W)) y -= 1;
-        if (Raylib.IsKeyDown(KeyboardKey.Down)  || Raylib.IsKeyDown(KeyboardKey.S)) y += 1;
+        if (Raylib.IsKeyDown(KeyboardKey.A)) x -= 1;
+        if (Raylib.IsKeyDown(KeyboardKey.D)) x += 1;
+        if (Raylib.IsKeyDown(KeyboardKey.W)) y -= 1;
+        if (Raylib.IsKeyDown(KeyboardKey.S)) y += 1;
 
         if (padOn)
         {
