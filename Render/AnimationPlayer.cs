@@ -9,7 +9,7 @@ namespace ResetyKile.Render;
 public class Animation
 {
     public SpriteSheet Sheet;
-    public float FrameDuration;   // segundos por frame
+    public float FrameDuration;
     public bool Loop;
 
     public int FrameCount => Sheet.FrameCount;
@@ -32,6 +32,9 @@ public class AnimationPlayer
     private int _frame;
 
     public string CurrentName { get; private set; } = "";
+
+    /// Índice do frame atual (0..FrameCount-1)
+    public int CurrentFrameIndex => _frame;
 
     public void Play(string name, Animation animation, bool restart = false)
     {
@@ -58,7 +61,7 @@ public class AnimationPlayer
                 if (_current.Loop)
                     _frame = 0;
                 else
-                    _frame = _current.FrameCount - 1; // trava no último frame
+                    _frame = _current.FrameCount - 1;
             }
         }
     }
@@ -66,8 +69,6 @@ public class AnimationPlayer
     public bool IsFinished
         => _current != null && !_current.Loop && _frame >= _current.FrameCount - 1;
 
-    /// Desenha o frame atual centrado na posição dada.
-    /// `flipX` inverte horizontalmente.
     public void DrawCentered(Vector2 center, bool flipX, Color tint)
     {
         if (_current == null) return;

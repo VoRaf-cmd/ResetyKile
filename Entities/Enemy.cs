@@ -8,7 +8,6 @@ public enum EnemyState { Patrol, Chase, Dying, Dead }
 
 public class Enemy
 {
-    // ---------- Constantes ----------
     private const float Gravity       = 900f;
     private const float MaxFall       = 160f;
     private const float PatrolSpeed   = 25f;
@@ -19,23 +18,19 @@ public class Enemy
     private const float DeathFlicker  = 0.15f;
     private const float HurtFlicker   = 0.12f;
 
-    // Separação entre inimigos
     private const float MinSeparation = 5f;
     private const float SeparateForce = 40f;
 
-    // Knockback
     private const float KnockbackDecel = 600f;
     private const float KnockbackMinSpeed = 10f;
 
-    // Anti-travamento
-    private const float StuckTime = 0.6f;   // tempo preso na parede antes de virar
+    private const float StuckTime = 0.6f;
 
     public const float MaxHp = 2.0f;
 
     private static int _nextId = 1;
     public int Id { get; }
 
-    // ---------- Estado ----------
     public Vector2 Position;
     public Vector2 Velocity;
     public Vector2 Size = new(8, 8);
@@ -49,7 +44,7 @@ public class Enemy
     private int  _wallDir;
     private float _deathTimer;
     private float _hurtTimer;
-    private float _stuckTimer;   // tempo tentando andar contra parede
+    private float _stuckTimer;
     private readonly Level _level;
 
     public Rectangle Bounds => new(Position.X - Size.X / 2f, Position.Y - Size.Y / 2f, Size.X, Size.Y);
@@ -95,6 +90,18 @@ public class Enemy
         Hp = 0f;
         State = EnemyState.Dying;
         _deathTimer = DeathFlicker;
+    }
+
+    public void Reset()
+    {
+        Position = SpawnPosition;
+        Velocity = Vector2.Zero;
+        Hp = MaxHp;
+        State = EnemyState.Patrol;
+        _deathTimer = 0f;
+        _hurtTimer = 0f;
+        _stuckTimer = 0f;
+        RespawnTimer = 0f;
     }
 
     public void Update(float dt, Vector2 playerPos)
@@ -164,7 +171,7 @@ public class Enemy
         MoveX(Velocity.X * dt, _level);
         MoveY(Velocity.Y * dt, _level);
 
-        // ---------- Comportamento com parede/beirada ----------
+        // ---------- Comportamento ----------
         if (State == EnemyState.Patrol && !inKnockback)
         {
             if (_wallDir != 0)
@@ -178,7 +185,8 @@ public class Enemy
                     Facing > 0 ? Bounds.X + Bounds.Width : Bounds.X - 2f,
                     Bounds.Y + Bounds.Height,
                     2f, 2f);
-                if (!_level.CollidesAny(frontFoot))
+                // true = checa sólidos E plataformas
+                if (!_level.CollidesAny(frontFoot, true))
                 {
                     Facing = -Facing;
                     _stuckTimer = 0f;
@@ -187,21 +195,15 @@ public class Enemy
         }
         else if (State == EnemyState.Chase && !inKnockback)
         {
-            // Em chase, se bate na parede:
             if (_wallDir != 0)
             {
                 _stuckTimer += dt;
 
-                // Primeiro tenta pular (se ainda não pulou)
                 if (_onGround && _stuckTimer < 0.15f)
-                {
                     Velocity.Y = -160f;
-                }
-                // Se tá preso muito tempo, vira de lado mesmo
                 else if (_stuckTimer > StuckTime)
                 {
                     Facing = -_wallDir;
-                    // Dá um pulinho pra ajudar a descolar
                     if (_onGround) Velocity.Y = -140f;
                     _stuckTimer = 0f;
                 }
@@ -213,7 +215,6 @@ public class Enemy
         }
     }
 
-    /// Separação leve entre inimigos — com checagem de tile pra não entrar em parede.
     public void SeparateFrom(List<Enemy> others, float dt)
     {
         if (!IsAlive) return;
@@ -238,16 +239,13 @@ public class Enemy
             float overlap = MinSeparation - adx;
             float push = SeparateForce * dt * (overlap / MinSeparation);
 
-            // Tenta empurrar; se o destino colidir com tile, ignora
             var testRect = new Rectangle(
                 Position.X + pushDir * push - Size.X / 2f,
                 Position.Y - Size.Y / 2f,
                 Size.X, Size.Y);
 
-            if (!_level.CollidesAny(testRect))
-            {
+            if (!_level.CollidesAny(testRect, false))
                 Position.X += pushDir * push;
-            }
         }
     }
 
@@ -271,6 +269,8 @@ public class Enemy
         _onGround = false;
         Position.Y += dy;
         var rect = Bounds;
+
+        // Sólidos
         foreach (var t in level.SolidTilesNear(rect))
         {
             if (!Raylib.CheckCollisionRecs(rect, t)) continue;
@@ -278,6 +278,19 @@ public class Enemy
             else        { Position.Y = t.Y + t.Height + Size.Y / 2f; }
             Velocity.Y = 0;
             rect = Bounds;
+        }
+
+        // Plataformas
+        if (dy > 0)
+        {
+            foreach (var t in level.PlatformTilesNear(rect))
+            {
+                if (!Raylib.CheckCollisionRecs(rect, t)) continue;
+                Position.Y = t.Y - Size.Y / 2f;
+                _onGround = true;
+                Velocity.Y = 0;
+                rect = Bounds;
+            }
         }
     }
 

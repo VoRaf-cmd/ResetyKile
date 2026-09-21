@@ -21,15 +21,10 @@ public static class Program
     private const int   DashAttackMaxKills   = 2;
 
     private const float KnockbackStrength = 140f;
-        // Câmera
-    private const float CameraZoom = 1.0f;   // 1.0 = Celeste puro. Aumente pra dar zoom in.
+    private const float ResetFadeDuration = 0.8f;
 
-    // Estado de fullscreen
     private static bool _isBorderlessFullscreen = false;
 
-    // ============================================================
-    // P/INVOKE — pegar resolução nativa do monitor (Windows)
-    // ============================================================
     [DllImport("user32.dll")]
     private static extern bool EnumDisplaySettings(string? deviceName, int modeNum, ref DEVMODE devMode);
 
@@ -85,13 +80,11 @@ public static class Program
         return (Raylib.GetMonitorWidth(0), Raylib.GetMonitorHeight(0));
     }
 
-    // ============================================================
-    // MAIN
-    // ============================================================
     public static void Main()
     {
         Raylib.SetConfigFlags(ConfigFlags.VSyncHint);
         Raylib.InitWindow(1280, 720, "ResetyKile");
+        Raylib.SetExitKey(KeyboardKey.Null);
 
         var renderer     = new Renderer();
         var shake        = new ScreenShake();
@@ -101,22 +94,22 @@ public static class Program
         var floatingText = new FloatingText();
         var stats        = new SessionStats();
 
-        var level       = Level.TestRoom();
-        var playerSpawn = new Vector2(64, 64);
+        var level       = Level.OrientalVillage();
+        var playerSpawn = new Vector2(32, 240);
         var player      = new Player { Position = playerSpawn };
 
         var enemies = new List<Enemy>
         {
-            new Enemy(new Vector2(100, 100), level),
-            new Enemy(new Vector2(160, 100), level),
-            new Enemy(new Vector2(220, 100), level),
-            new Enemy(new Vector2(100, 170), level),
-            new Enemy(new Vector2(180, 130), level),
-            new Enemy(new Vector2(240, 100), level),
-            new Enemy(new Vector2(280, 60),  level),
-            new Enemy(new Vector2(330, 150), level),
-            new Enemy(new Vector2(380, 60),  level),
-            new Enemy(new Vector2(430, 60),  level),
+            new Enemy(new Vector2(100, 240), level),
+            new Enemy(new Vector2(160, 240), level),
+            new Enemy(new Vector2(220, 240), level),
+            new Enemy(new Vector2(300, 200), level),
+            new Enemy(new Vector2(380, 240), level),
+            new Enemy(new Vector2(420, 180), level),
+            new Enemy(new Vector2(460, 240), level),
+            new Enemy(new Vector2(500, 240), level),
+            new Enemy(new Vector2(540, 220), level),
+            new Enemy(new Vector2(580, 240), level),
         };
 
         var camera = new Camera2D
@@ -135,6 +128,8 @@ public static class Program
         float sessionTime = 0f;
         float gameTime = 0f;
         bool paused = false;
+        bool resetting = false;
+        float resetFadeTimer = 0f;
 
         while (!Raylib.WindowShouldClose())
         {
@@ -144,12 +139,10 @@ public static class Program
 
             var input = Input.Read();
 
-            // ---- Fullscreen: F11 ou Alt+Enter ----
             bool altEnter = Raylib.IsKeyDown(KeyboardKey.LeftAlt) || Raylib.IsKeyDown(KeyboardKey.RightAlt);
             if (Raylib.IsKeyPressed(KeyboardKey.F11) || (altEnter && Raylib.IsKeyPressed(KeyboardKey.Enter)))
                 ToggleBorderlessFullscreen();
 
-            // ---- Pause ----
             if (input.PausePressed)
             {
                 paused = !paused;
@@ -159,6 +152,14 @@ public static class Program
                 input.AttackPressed = false;
                 input.SuperPressed  = false;
                 input.PausePressed  = false;
+                input.ResetPressed  = false;
+            }
+
+            if (input.ResetPressed && !resetting)
+            {
+                resetting = true;
+                resetFadeTimer = 0f;
+                input.ResetPressed = false;
             }
 
             if (!paused)
@@ -166,11 +167,158 @@ public static class Program
                 sessionTime += frameDt;
                 gameTime += frameDt;
 
-                while (accumulator >= FixedDt)
+                if (resetting)
                 {
-                    if (hitStop.Active)
+                    float prev = resetFadeTimer;
+                    resetFadeTimer += frameDt / ResetFadeDuration;
+
+                    if (prev < 0.5f && resetFadeTimer >= 0.5f)
                     {
-                        hitStop.Update(FixedDt);
+                        player.Reset(playerSpawn);
+                        foreach (var e in enemies) e.Reset();
+                        stats.ResetPoints();
+                        sessionTime = 0f;
+                        gameTime = 0f;
+                        shake = new ScreenShake();
+                        hitStop = new HitStop();
+                        particles = new Particles();
+                        dashTrail = new DashTrail();
+                        floatingText = new FloatingText();
+                        accumulator = 0f;
+                        playerIsDead = false;
+                        playerDeathTimer = 0f;
+                    }
+
+                    if (resetFadeTimer >= 1f)
+                    {
+                        resetting = false;
+                        resetFadeTimer = 0f;
+                    }
+                }
+
+                if (!resetting)
+                {
+                    while (accumulator >= FixedDt)
+                    {
+                        if (hitStop.Active)
+                        {
+                            hitStop.Update(FixedDt);
+                            accumulator -= FixedDt;
+
+                            input.JumpPressed   = false;
+                            input.JumpReleased  = false;
+                            input.DashPressed   = false;
+                            input.AttackPressed = false;
+                            input.SuperPressed  = false;
+                            input.PausePressed  = false;
+                            input.ResetPressed  = false;
+
+                            continue;
+                        }
+
+                        player.Update(FixedDt, input, level);
+                        player.TryAttack(input);
+
+                        if (player.IsAttacking && !player.HasHitThisSwing)
+                        {
+                            var hitbox = player.AttackHitbox;
+
+                            hitTargets.Clear();
+                            foreach (var e in enemies)
+                            {
+                                if (!e.IsAlive) continue;
+                                if (!Raylib.CheckCollisionRecs(hitbox, e.Bounds)) continue;
+                                hitTargets.Add(e);
+                            }
+
+                            if (hitTargets.Count > 0)
+                            {
+                                bool isDashAttack = player.IsDashing;
+                                bool isDoubleHit  = hitTargets.Count >= 2;
+
+                                if (isDashAttack)
+                                    ProcessDashAttack(hitTargets, player, shake, hitStop, particles, stats, floatingText);
+                                else
+                                    ProcessNormalAttack(hitTargets, player, shake, hitStop, particles, stats, floatingText);
+
+                                if (player.Hp <= 4 || isDoubleHit)
+                                {
+                                    floatingText.Spawn("Damn!", player.Position + new Vector2(0f, -14f),
+                                        new Color((byte)255, (byte)220, (byte)80, (byte)255), 0.7f);
+                                }
+
+                                player.MarkHit();
+                            }
+                        }
+
+                        if (!player.IsInvulnerable && player.State != PlayerState.Dead)
+                        {
+                            foreach (var e in enemies)
+                            {
+                                if (!e.IsAlive) continue;
+                                if (!Raylib.CheckCollisionRecs(player.Bounds, e.Bounds)) continue;
+
+                                player.TakeDamage(2, (int)e.Position.X);
+                                shake.AddTrauma(0.5f);
+                                hitStop.Trigger(0.1f);
+                                particles.Burst(player.Position, 10, new Color((byte)255, (byte)80, (byte)80, (byte)255),
+                                                60f, 130f, 0.4f, gravity: 350f, size: 2f);
+                                break;
+                            }
+                        }
+
+                        if (player.State == PlayerState.Dashing)
+                        {
+                            dashTrailCounter++;
+                            if (dashTrailCounter % 4 == 0)
+                            {
+                                var sheet = player.CurrentSheet;
+                                if (sheet != null)
+                                {
+                                    var ghostColor = new Color((byte)80, (byte)140, (byte)255, (byte)255);
+                                    var ghostPos = new Vector2(
+                                        player.Position.X,
+                                        player.Position.Y + Player.SpriteYOffsetPublic);
+                                    dashTrail.Emit(sheet, player.CurrentFrame, ghostPos, player.Facing < 0, ghostColor);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            dashTrailCounter = 0;
+                        }
+
+                        particles.Update(FixedDt);
+                        dashTrail.Update(FixedDt);
+                        floatingText.Update(FixedDt);
+
+                        foreach (var e in enemies)
+                            e.Update(FixedDt, player.Position);
+
+                        foreach (var e in enemies)
+                            e.SeparateFrom(enemies, FixedDt);
+
+                        if (player.State == PlayerState.Dead && !playerIsDead)
+                        {
+                            playerIsDead = true;
+                            playerDeathTimer = PlayerRespawnDelay;
+                            shake.AddTrauma(0.8f);
+                            hitStop.Trigger(0.15f);
+                            particles.Burst(player.Position, 20, new Color((byte)255, (byte)60, (byte)100, (byte)255),
+                                            80f, 180f, 0.7f, gravity: 400f, size: 2f);
+                            stats.ResetPoints();
+                        }
+
+                        if (playerIsDead)
+                        {
+                            playerDeathTimer -= FixedDt;
+                            if (playerDeathTimer <= 0f)
+                            {
+                                player.Respawn(playerSpawn);
+                                playerIsDead = false;
+                            }
+                        }
+
                         accumulator -= FixedDt;
 
                         input.JumpPressed   = false;
@@ -179,142 +327,37 @@ public static class Program
                         input.AttackPressed = false;
                         input.SuperPressed  = false;
                         input.PausePressed  = false;
-
-                        continue;
+                        input.ResetPressed  = false;
                     }
 
-                    player.Update(FixedDt, input, level);
-                    player.TryAttack(input);
+                    camera.Target = MathUtil.ExpLerp(camera.Target, player.Position, 12f, frameDt);
 
-                    // ---- Ataque ----
-                    if (player.IsAttacking && !player.HasHitThisSwing)
-                    {
-                        var hitbox = player.AttackHitbox;
-
-                        hitTargets.Clear();
-                        foreach (var e in enemies)
-                        {
-                            if (!e.IsAlive) continue;
-                            if (!Raylib.CheckCollisionRecs(hitbox, e.Bounds)) continue;
-                            hitTargets.Add(e);
-                        }
-
-                        if (hitTargets.Count > 0)
-                        {
-                            bool isDashAttack = player.IsDashing;
-                            bool isDoubleHit  = hitTargets.Count >= 2;
-
-                            if (isDashAttack)
-                                ProcessDashAttack(hitTargets, player, shake, hitStop, particles, stats, floatingText);
-                            else
-                                ProcessNormalAttack(hitTargets, player, shake, hitStop, particles, stats, floatingText);
-
-                            if (player.Hp <= 4 || isDoubleHit)
-                            {
-                                floatingText.Spawn("Damn!", player.Position + new Vector2(0f, -14f),
-                                    new Color((byte)255, (byte)220, (byte)80, (byte)255), 0.7f);
-                            }
-
-                            player.MarkHit();
-                        }
-                    }
-
-                    // ---- Inimigo machuca Kile ----
-                    if (!player.IsInvulnerable && player.State != PlayerState.Dead)
-                    {
-                        foreach (var e in enemies)
-                        {
-                            if (!e.IsAlive) continue;
-                            if (!Raylib.CheckCollisionRecs(player.Bounds, e.Bounds)) continue;
-
-                            player.TakeDamage(2, (int)e.Position.X);
-                            shake.AddTrauma(0.5f);
-                            hitStop.Trigger(0.1f);
-                            particles.Burst(player.Position, 10, new Color((byte)255, (byte)80, (byte)80, (byte)255),
-                                            60f, 130f, 0.4f, gravity: 350f, size: 2f);
-                            break;
-                        }
-                    }
-
-                    // ---- Dash trail ----
-                    if (player.State == PlayerState.Dashing)
-                    {
-                        dashTrailCounter++;
-                        if (dashTrailCounter % 2 == 0)
-                            dashTrail.Emit(player.Position, player.Size, new Color((byte)120, (byte)220, (byte)255, (byte)255));
-                    }
-                    else
-                    {
-                        dashTrailCounter = 0;
-                    }
-
-                    particles.Update(FixedDt);
-                    dashTrail.Update(FixedDt);
-                    floatingText.Update(FixedDt);
-
-                    foreach (var e in enemies)
-                        e.Update(FixedDt, player.Position);
-
-                    foreach (var e in enemies)
-                        e.SeparateFrom(enemies, FixedDt);
-
-                    // ---- Morte → respawn ----
-                    if (player.State == PlayerState.Dead && !playerIsDead)
-                    {
-                        playerIsDead = true;
-                        playerDeathTimer = PlayerRespawnDelay;
-                        shake.AddTrauma(0.8f);
-                        hitStop.Trigger(0.15f);
-                        particles.Burst(player.Position, 20, new Color((byte)255, (byte)60, (byte)100, (byte)255),
-                                        80f, 180f, 0.7f, gravity: 400f, size: 2f);
-                        stats.ResetPoints();
-                    }
-
-                    if (playerIsDead)
-                    {
-                        playerDeathTimer -= FixedDt;
-                        if (playerDeathTimer <= 0f)
-                        {
-                            player.Respawn(playerSpawn);
-                            playerIsDead = false;
-                        }
-                    }
-
-                    accumulator -= FixedDt;
-
-                    input.JumpPressed   = false;
-                    input.JumpReleased  = false;
-                    input.DashPressed   = false;
-                    input.AttackPressed = false;
-                    input.SuperPressed  = false;
-                    input.PausePressed  = false;
+                    shake.Update(frameDt);
+                    var shakeOffset = shake.GetOffset();
+                    camera.Offset = new Vector2(
+                        Renderer.InternalW / 2f + shakeOffset.X,
+                        Renderer.InternalH / 2f + shakeOffset.Y);
+                    camera.Rotation = shake.GetRoll();
                 }
-
-                camera.Target = MathUtil.ExpLerp(camera.Target, player.Position, 12f, frameDt);
-
-                shake.Update(frameDt);
-                var shakeOffset = shake.GetOffset();
-                camera.Offset = new Vector2(
-                    Renderer.InternalW / 2f + shakeOffset.X,
-                    Renderer.InternalH / 2f + shakeOffset.Y);
-                camera.Rotation = shake.GetRoll();
+                else
+                {
+                    accumulator = 0f;
+                }
             }
             else
             {
                 accumulator = 0f;
             }
 
-            // =================== RENDER ===================
             renderer.Begin();
-            Raylib.ClearBackground(new Color((byte)18, (byte)16, (byte)28, (byte)255));
+            Raylib.ClearBackground(new Color((byte)220, (byte)210, (byte)190, (byte)255));
 
             Raylib.BeginMode2D(camera);
 
-            level.Draw(camera, new Color((byte)80, (byte)80, (byte)110, (byte)255));
+            level.Draw(camera);
 
             DrawEnemies(enemies);
 
-            // Aura Super
             if (player.State == PlayerState.Super)
             {
                 float pulse = (MathF.Sin(now * 10f) + 1f) * 0.5f;
@@ -326,7 +369,6 @@ public static class Program
                 Raylib.DrawRectangleRec(auraRect, new Color((byte)255, (byte)90, (byte)180, (byte)50));
             }
 
-            // Aura Escudo
             if (player.Shield)
             {
                 float pulse = (MathF.Sin(now * 4f) + 1f) * 0.5f;
@@ -345,25 +387,8 @@ public static class Program
             particles.Draw();
             floatingText.Draw();
 
-            // Katana
-            if (player.IsAttacking)
-            {
-                var hb = player.AttackHitbox;
-                Color katanaColor = player.IsDashing
-                    ? new Color((byte)150, (byte)240, (byte)255, (byte)200)
-                    : new Color((byte)255, (byte)255, (byte)255, (byte)180);
-                Raylib.DrawRectangleRec(hb, katanaColor);
-
-                Raylib.DrawLineEx(
-                    new Vector2(player.Position.X, player.Position.Y),
-                    new Vector2(player.Facing > 0 ? hb.X + hb.Width : hb.X, hb.Y + hb.Height / 2f),
-                    2f,
-                    new Color((byte)220, (byte)240, (byte)255, (byte)255));
-            }
-
             Raylib.EndMode2D();
 
-            // ---- HUD ----
             Hud.Draw(player, gameTime);
             SessionStats.Draw(stats, sessionTime);
 
@@ -376,7 +401,6 @@ public static class Program
                     new Color((byte)255, (byte)90, (byte)90, (byte)255));
             }
 
-            // ---- Overlay de Pause ----
             if (paused)
             {
                 Raylib.DrawRectangle(0, 0, Renderer.InternalW, Renderer.InternalH,
@@ -401,26 +425,44 @@ public static class Program
                 Raylib.DrawText(hint, hintX, hintY, hintSize, new Color((byte)180, (byte)180, (byte)200, (byte)255));
             }
 
+            if (resetting)
+            {
+                float alpha;
+                if (resetFadeTimer < 0.5f)
+                    alpha = resetFadeTimer * 2f;
+                else
+                    alpha = (1f - resetFadeTimer) * 2f;
+
+                alpha = Math.Clamp(alpha, 0f, 1f);
+
+                if (MathF.Abs(resetFadeTimer - 0.5f) < 0.03f)
+                {
+                    byte flashA = (byte)((1f - MathF.Abs(resetFadeTimer - 0.5f) / 0.03f) * 200f);
+                    Raylib.DrawRectangle(0, 0, Renderer.InternalW, Renderer.InternalH,
+                        new Color((byte)255, (byte)255, (byte)255, flashA));
+                }
+
+                byte a = (byte)(alpha * 255);
+                Raylib.DrawRectangle(0, 0, Renderer.InternalW, Renderer.InternalH,
+                    new Color((byte)0, (byte)0, (byte)0, a));
+            }
+
             renderer.End();
         }
 
+        player.UnloadAnimations();
         renderer.Unload();
         Raylib.CloseWindow();
     }
 
-    // ============================================================
-    // FULLSCREEN — resolução nativa via Windows API
-    // ============================================================
     private static void ToggleBorderlessFullscreen()
     {
         if (!_isBorderlessFullscreen)
         {
             var (w, h) = GetNativeResolution();
-
             Raylib.SetWindowSize(w, h);
             Raylib.SetWindowPosition(0, 0);
             Raylib.SetWindowState(ConfigFlags.UndecoratedWindow | ConfigFlags.FullscreenMode);
-
             _isBorderlessFullscreen = true;
         }
         else
@@ -428,14 +470,10 @@ public static class Program
             Raylib.ClearWindowState(ConfigFlags.UndecoratedWindow | ConfigFlags.FullscreenMode);
             Raylib.SetWindowSize(1280, 720);
             Raylib.SetWindowPosition(100, 100);
-
             _isBorderlessFullscreen = false;
         }
     }
 
-    // ============================================================
-    // ATAQUE NORMAL
-    // ============================================================
     private static void ProcessNormalAttack(List<Enemy> hitTargets, Player player,
         ScreenShake shake, HitStop hitStop, Particles particles,
         SessionStats stats, FloatingText floatingText)
@@ -484,9 +522,6 @@ public static class Program
         }
     }
 
-    // ============================================================
-    // DASH-ATTACK
-    // ============================================================
     private static void ProcessDashAttack(List<Enemy> hitTargets, Player player,
         ScreenShake shake, HitStop hitStop, Particles particles,
         SessionStats stats, FloatingText floatingText)
@@ -553,9 +588,6 @@ public static class Program
         }
     }
 
-    // ============================================================
-    // DESENHO DOS INIMIGOS
-    // ============================================================
     private static void DrawEnemies(List<Enemy> enemies)
     {
         var sorted = new List<Enemy>(enemies.Count);

@@ -3,10 +3,6 @@ using System.Numerics;
 
 namespace ResetyKile.Render;
 
-/// <summary>
-/// Spritesheet de UMA linha (N frames lado a lado).
-/// Se o arquivo não existir, gera um placeholder colorido.
-/// </summary>
 public class SpriteSheet : IDisposable
 {
     public int FrameWidth  { get; }
@@ -14,6 +10,8 @@ public class SpriteSheet : IDisposable
     public int FrameCount  { get; }
 
     private readonly Texture2D _texture;
+    private Texture2D? _tintedTexture;
+    private Color _tintColor;
 
     public SpriteSheet(string path, int frameWidth, int frameHeight, Color placeholderColor)
     {
@@ -32,9 +30,7 @@ public class SpriteSheet : IDisposable
         }
         else
         {
-            // Placeholder: 4 frames de retângulo colorido
             FrameCount = 4;
-
             var img = Raylib.GenImageColor(frameWidth * FrameCount, frameHeight, placeholderColor);
             Raylib.ImageDrawRectangle(ref img, frameWidth - 4, 4, 2, 2, Color.Black);
 
@@ -42,6 +38,39 @@ public class SpriteSheet : IDisposable
             Raylib.UnloadImage(img);
             Raylib.SetTextureFilter(_texture, TextureFilter.Point);
         }
+    }
+
+    /// Gera (ou retorna cache) uma versão do sprite todo tingido de uma cor.
+    public Texture2D GetTintedTexture(Color tint)
+    {
+        if (_tintedTexture.HasValue && _tintColor.Equals(tint))
+            return _tintedTexture.Value;
+
+        if (_tintedTexture.HasValue)
+            Raylib.UnloadTexture(_tintedTexture.Value);
+
+        var img = Raylib.LoadImageFromTexture(_texture);
+
+        unsafe
+        {
+            var pixels = (Color*)img.Data;
+            int total = img.Width * img.Height;
+
+            for (int i = 0; i < total; i++)
+            {
+                if (pixels[i].A > 0)
+                {
+                    pixels[i] = new Color(tint.R, tint.G, tint.B, pixels[i].A);
+                }
+            }
+        }
+
+        _tintedTexture = Raylib.LoadTextureFromImage(img);
+        Raylib.UnloadImage(img);
+        Raylib.SetTextureFilter(_tintedTexture.Value, TextureFilter.Point);
+        _tintColor = tint;
+
+        return _tintedTexture.Value;
     }
 
     public Rectangle GetFrameRect(int frameIndex)
@@ -64,5 +93,28 @@ public class SpriteSheet : IDisposable
         Raylib.DrawTexturePro(_texture, src, dst, Vector2.Zero, 0f, tint);
     }
 
-    public void Dispose() => Raylib.UnloadTexture(_texture);
+    /// Desenha o frame usando a versão tingida (silhueta sólida).
+    public void DrawTinted(int frameIndex, Vector2 topLeft, bool flipX, Color tint, float alpha)
+    {
+        var tex = GetTintedTexture(tint);
+
+        var src = GetFrameRect(frameIndex);
+        if (flipX)
+        {
+            src.X += FrameWidth;
+            src.Width = -FrameWidth;
+        }
+
+        var dst = new Rectangle(topLeft.X, topLeft.Y, FrameWidth, FrameHeight);
+        var drawColor = new Color((byte)255, (byte)255, (byte)255, (byte)(alpha * 255));
+
+        Raylib.DrawTexturePro(tex, src, dst, Vector2.Zero, 0f, drawColor);
+    }
+
+    public void Dispose()
+    {
+        if (_tintedTexture.HasValue)
+            Raylib.UnloadTexture(_tintedTexture.Value);
+        Raylib.UnloadTexture(_texture);
+    }
 }

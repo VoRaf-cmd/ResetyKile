@@ -3,35 +3,35 @@ using System.Numerics;
 
 namespace ResetyKile.Render;
 
-/// <summary>
-/// Rastro do dash: cada "fantasma" é um snapshot da posição/tamanho
-/// do player que desvanece em ~0.3s.
-/// </summary>
 public class DashTrail
 {
     private struct Ghost
     {
+        public SpriteSheet? Sheet;
+        public int Frame;
         public Vector2 Position;
-        public Vector2 Size;
+        public bool FlipX;
+        public Color Color;
         public float Life;
         public float MaxLife;
-        public Color Color;
     }
 
-    private const int MaxGhosts = 32;
+    private const int MaxGhosts = 48;
     private readonly Ghost[] _pool = new Ghost[MaxGhosts];
     private int _next;
 
-    public void Emit(Vector2 pos, Vector2 size, Color color, float life = 0.3f)
+    public void Emit(SpriteSheet sheet, int frame, Vector2 center, bool flipX, Color color, float life = 0.35f)
     {
         ref var g = ref _pool[_next];
         _next = (_next + 1) % MaxGhosts;
 
-        g.Position = pos;
-        g.Size = size;
-        g.Life = life;
-        g.MaxLife = life;
-        g.Color = color;
+        g.Sheet    = sheet;
+        g.Frame    = frame;
+        g.Position = center;
+        g.FlipX    = flipX;
+        g.Color    = color;
+        g.Life     = life;
+        g.MaxLife  = life;
     }
 
     public void Update(float dt)
@@ -39,6 +39,7 @@ public class DashTrail
         for (int i = 0; i < MaxGhosts; i++)
         {
             ref var g = ref _pool[i];
+            if (g.Sheet == null) continue;
             if (g.Life <= 0f) continue;
             g.Life -= dt;
         }
@@ -49,19 +50,22 @@ public class DashTrail
         for (int i = 0; i < MaxGhosts; i++)
         {
             ref var g = ref _pool[i];
+            if (g.Sheet == null) continue;
             if (g.Life <= 0f) continue;
 
-            float t = g.Life / g.MaxLife;
-            byte alpha = (byte)(120 * t);
+            float alpha = g.Life / g.MaxLife;
 
-            var rect = new Rectangle(
-                g.Position.X - g.Size.X / 2f,
-                g.Position.Y - g.Size.Y / 2f,
-                g.Size.X,
-                g.Size.Y);
+            var topLeft = new Vector2(
+                g.Position.X - g.Sheet.FrameWidth / 2f,
+                g.Position.Y - g.Sheet.FrameHeight / 2f);
 
-            var c = new Color(g.Color.R, g.Color.G, g.Color.B, alpha);
-            Raylib.DrawRectangleRec(rect, c);
+            g.Sheet.DrawTinted(g.Frame, topLeft, g.FlipX, g.Color, alpha);
         }
+    }
+
+    public void Clear()
+    {
+        for (int i = 0; i < MaxGhosts; i++)
+            _pool[i].Sheet = null;
     }
 }

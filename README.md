@@ -13,8 +13,8 @@ Repo: https://github.com/VoRaf-cmd/ResetyKile
 
 ## STATUS
 
-Pré-alpha. Combate core funcional, sem arte final, sem áudio.
-Foco atual: gamefeel e juice.
+Pré-alpha. Combate core funcional, sistema de sprites pronto, sem áudio.
+Foco atual: arte do Kile (sprites) e refino visual.
 
 ---
 
@@ -24,6 +24,10 @@ Foco atual: gamefeel e juice.
 - Loop com timestep fixo (1/120s)
 - Renderização pixel-perfect (320x180 escalado)
 - Input unificado: teclado + Xbox + PlayStation
+- Fullscreen borderless (F11 / Alt+Enter) com resolução nativa
+- Esc não fecha mais a janela (SetExitKey Null)
+- Pause com Esc / Start (congela tudo, inclusive animações da HUD)
+- Reset com R / Select (fade preto + flash branco + reset de tudo)
 
 ### Kile (Player)
 - Corrida com aceleração/desaceleração
@@ -32,9 +36,12 @@ Foco atual: gamefeel e juice.
 - Dash em 8 direções
 - Wall slide + wall jump
 - Stamina de dash: 3 raios, regenera no chão (1.2s/raio) e no ar (3s/raio)
+- Drop through platform (S / D-pad baixo / analógico baixo)
+- Sprite 16×24 com sistema de animação (SpriteSheet + AnimationPlayer)
+- Offset vertical do sprite ajustável (SpriteYOffset)
 
 ### Combate
-- Ataque de katana (hitbox à frente)
+- Ataque de katana (hitbox à frente, 21×13)
 - Ataque normal: dano dividido entre inimigos na hitbox
 - Dano base: 2.0 (mata 1 inimigo de 2 HP sozinho)
 - Dash-attack: hit kill em até 2 inimigos mais próximos,
@@ -56,7 +63,7 @@ Foco atual: gamefeel e juice.
 ### Souls / Super
 - Souls: 10 no total, ganhas 1 por inimigo morto
 - Visual: 5 quadradinhos, cada um = 2 souls
-- Super ativa com 10 souls (tecla E / B ou Circle)
+- Super ativa com 10 souls (E / B ou Circle)
 - Animação de "lamber katana" (0.6s windup)
 - Duração: 8 segundos
 - Efeito: Kile fica rosa + aura quadrada pulsante
@@ -65,37 +72,75 @@ Foco atual: gamefeel e juice.
 - Super NÃO regenera vida (cura virá de itens no futuro)
 - Super = stamina infinita durante o efeito
 
-### HUD (UI/Hud.cs)
+### Katana (visual)
+- Desenhada por CÓDIGO (não está no sprite do Kile)
+- Linha horizontal com gradiente (cinza → branco)
+- Borda preta (1px em cima e embaixo)
+- Aparece durante o attack, crescendo da esquerda pra direita
+- Animação baseada em TEMPO (não no frame do sprite)
+- Efeito de "corta e volta": cresce (0→100%) e encolhe (100→0%)
+- Classe: Render/Katana.cs
+
+### Sprites (Kile)
+- Tamanho: 16×24 por frame
+- Formato: PNG spritesheet horizontal (1 linha)
+- Sistema: SpriteSheet + AnimationPlayer + DashTrail com silhueta
+- Animações carregadas: idle, run, jump, fall, dash, wall_slide,
+  wall_jump, attack, lick, super_idle, hurt, death
+- Fallback: se o PNG não existe, gera placeholder colorido
+- Se o PNG existe mas não é múltiplo de 16, dá erro
+
+### Dash Trail
+- Cada fantasma é uma cópia do SPRITE do Kile (não retângulo)
+- Cor: azul (silhueta 100% azul, sem mostrar cores do sprite)
+- Frequência: a cada 4 ticks (menos que o dash original)
+- Fade automático conforme a vida do fantasma
+
+### HUD (UI/Hud.cs + UI/SessionStats.cs)
 - Linha 1: 5 corações fracionados (25/50/75/100%)
 - Linha 2: 3 raios de stamina com animação de carga (tremida)
 - Linha 3: 5 quadradinhos de soul (meio-cheios quando 1 soul)
 - Barra de tempo do super quando ativo
 - Coração prateado pulsante quando tem escudo
+- SessionStats: tempo de sessão (MM:SS) + pontos (+5 kill, +10 dash-kill)
 
 ### Juice (Render/)
 - ScreenShake (trauma-based, decay 1.8/s)
 - HitStop / freeze frame (60-150ms em impactos)
 - Particles (burst por evento, pool de 512)
-- DashTrail (fantasmas ciano durante dash)
-- FloatingText (ex: "Damn!")
+- DashTrail (silhuetas azuis com sprite)
+- FloatingText (ex: "Damn!", "+5", "+10")
 - Flash branco em inimigos ao tomar hit (IsHurt)
 - Outline escura nos inimigos (corpo escurecido 35%)
 - Sombra sob inimigos
+- Fade preto + flash branco no reset
+
+### Mundo
+- Level OrientalVillage: chão, paredes, plataformas, estrutura de pagode
+- Plataformas atravessáveis (one-way): pula por baixo, pisa em cima
+- Colisão AABB com tiles sólidos e plataformas
+- Tiles com cores por tipo (pedra/madeira/terra)
 
 ### Regras especiais
 - "Damn!" aparece quando: Hp <= 4 (1 coração) OU acerta 2+ inimigos
 - Hitstop NÃO acontece durante dash-attack (pra não travar o movimento)
 - Dano dividido só em ataque normal
 - Dash-attack ignora divisão
+- Reset (R / Select) reseta player, inimigos, partículas, stats, tempo
 
 ---
 
 ## NÃO IMPLEMENTADO (roadmap)
 
 ### Arte / Visual
-- Sistema de SpriteSheet + AnimationPlayer
-- Paleta de cores própria
+- Terminar sprites do Kile (run parcial, falta jump, fall, dash,
+  wall_jump, lick, super_idle, hurt, death)
+- Versão "_a" do Kile (inicial, sem katana, com mochila)
+- Sprites dos inimigos
+- Sprites dos tiles (chão, plataforma, pagode)
 - Background / parallax
+- Iluminação (vinheta, bloom, camada de cor)
+- Paleta de cores própria
 
 ### Combate expandido
 - Inimigos variados (voador, atirador, tanque)
@@ -109,11 +154,13 @@ Foco atual: gamefeel e juice.
 - Mundo contínuo, sem separação de fases/menu
 - Progressão narrativa
 - Inimigos finitos no jogo final (respawn é só pra teste)
+- Kile começa SEM katana (com mochila) -> acha katana em algum ponto
 
 ### Ferramentas
 - Tilemap via Tiled (editor visual de fase)
 - Áudio (SFX + trilha)
-- Menu / Pause / Game Over
+- Menu / Pause de verdade (com opções)
+- Tela de Game Over
 
 ### Publish
 - Build final .exe pra Windows
@@ -123,19 +170,23 @@ Foco atual: gamefeel e juice.
 
 ## CONTROLES
 
-Ação         | Teclado         | Xbox              | PlayStation
--------------|-----------------|-------------------|-------------------
-Mover        | A / D           | Analógico / D-pad | Analógico / D-pad
-Pular        | Espaço / C      | A                 | Cross
-Dash         | Shift / X       | X                 | Square
-Atacar       | Z / J           | Y                 | Triangle
-Super        | E / K           | B                 | Circle
-Pause        | Esc             | Start             | Options
+Ação         | Teclado              | Xbox                  | PlayStation
+-------------|----------------------|-----------------------|-------------------
+Mover        | A / D                | Analógico esq / D-pad | Analógico esq / D-pad
+Pular        | Espaço / C           | A                     | Cross
+Dash         | Shift / X            | X                     | Square
+Atacar       | Z / J                | RT (gatilho direito)  | R2 (gatilho direito)
+Super        | E / K                | B                     | Circle
+Pause        | Esc                  | Start                 | Options
+Reset        | R                    | Select / L3 / R3      | Select / L3 / R3
+Fullscreen   | F11 ou Alt+Enter     | —                     | —
 
 Dica: segura direção antes de apertar dash (8 direções).
 Sem direção, dash vai na direção que o Kile está virado.
 
 Dash-attack: aperta dash + ataque no mesmo tick.
+
+Drop through platform: S / D-pad baixo / analógico baixo em cima de plataforma.
 
 ---
 
@@ -150,7 +201,7 @@ ResetyKile/
 │   ├── Renderer.cs            - canvas 320x180 pixel-perfect
 │   └── Input.cs               - input unificado
 ├── Entities/
-│   ├── Player.cs              - o Kile (física, ataque, super, escudo, stamina)
+│   ├── Player.cs              - o Kile (física, ataque, super, escudo, stamina, sprite)
 │   └── Enemy.cs               - inimigo patrulha/perseguição, 2 HP, knockback
 ├── World/
 │   └── Level.cs               - grid de tiles + colisão AABB
@@ -159,12 +210,23 @@ ResetyKile/
 │   ├── HitStop.cs
 │   ├── Particles.cs
 │   ├── DashTrail.cs
-│   └── FloatingText.cs
+│   ├── FloatingText.cs
+│   ├── SpriteSheet.cs         - loader de spritesheet + placeholder + versão tingida
+│   ├── AnimationPlayer.cs     - controla frames por tempo
+│   └── Katana.cs              - katana desenhada por código
 ├── UI/
-│   └── Hud.cs                 - HUD unificada
+│   ├── Hud.cs                 - HUD unificada
+│   └── SessionStats.cs        - tempo + pontos
 ├── Audio/                     - (vazio)
 ├── Data/                      - (vazio)
-└── Assets/                    - (vazio)
+└── Assets/
+    └── sprites/
+        └── kile/
+            ├── idle.png       - 4 frames, 64x24
+            ├── run.png        - 6 frames, 96x24
+            ├── wall_slide.png - 2 frames, 32x24
+            ├── attack.png     - 4 frames, 64x24
+            └── ...            - outros (ainda não desenhados)
 
 Namespaces batem com pastas.
 
@@ -181,6 +243,9 @@ dotnet run
 Build final (Windows):
 
 dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true
+
+IMPORTANTE: a `raylib.dll` NÃO é embutida no .exe. Manda os 2 arquivos
+(.exe + raylib.dll) pro amigo. Sem a DLL, o jogo não abre.
 
 ---
 
@@ -209,6 +274,21 @@ dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=
 
 - Parâmetros de dano e regras ficam no topo do Program.cs.
 
+- Fullscreen: usa P/Invoke (EnumDisplaySettings) pra pegar a resolução
+  nativa. Só funciona no Windows. Pra port Linux/Mac, precisa reescrever
+  GetNativeResolution com API nativa ou usar fallback do Raylib.
+
+- Sprites do Kile: 16x24 por frame, spritesheet horizontal (1 linha).
+  Sempre desenhar virado pra DIREITA (o código faz flip quando anda pra esquerda).
+  Se a animação parecer invertida, é o PNG que tá virado pra esquerda.
+
+- Assets: o .csproj copia Assets/ pro build via <None Update="Assets\**\*.*">.
+  Sem isso, os PNGs não são encontrados em runtime.
+
+- Katana: desenhada por código, baseada no TEMPO restante do attack
+  (não no frame do sprite). Isso evita que ela "pisque" — cresce suave
+  e encolhe suave.
+
 ---
 
 ## INSTRUÇÕES PRA IA / CONTINUIDADE
@@ -229,8 +309,9 @@ Se você é uma IA lendo isso e o Rafael pediu pra continuar:
    - Itens de cura no inventário
    - Mundo contínuo, progressão narrativa, sem "fases" separadas por menu
    - Inimigos finitos no jogo final
-8. Ordem de trabalho combinada: terminar juice e combate core,
-   depois animação, depois Tilemap, depois áudio, depois progressão.
+   - Kile começa SEM katana (com mochila) -> acha katana
+8. Ordem de trabalho combinada: sprites -> combate expandido ->
+   sistema de progressão -> áudio -> menu -> iluminação -> publish.
 
 ---
 
@@ -243,6 +324,17 @@ Se você é uma IA lendo isso e o Rafael pediu pra continuar:
 - v0.5 - Stamina (3 raios), vida 20 pontos, souls 10 (5 quadradinhos),
          dash-attack com hit kill em 2 + residual, HUD reformulada,
          coração fracionado vertical, "Damn!" com 1 coração ou hit duplo
+- v0.6 - Ataque remapeado para RT/R2, pause com gameTime,
+         fullscreen borderless em resolução nativa (F11/Alt+Enter)
+- v0.7 - Sistema de sprite (SpriteSheet + AnimationPlayer),
+         Kile 16x24, zoom 1.0 estilo Celeste, Renderer com escala proporcional
+- v0.8 - Level OrientalVillage, plataformas atravessáveis,
+         drop through (S/D-pad/analógico), reset com R/Select,
+         correção de IA dos inimigos em plataformas
+- v0.9 - Dash trail com silhueta azul (sprite tingido), SpriteSheet com
+         GetTintedTexture, Esc não fecha mais a janela
+- v0.10 - Katana desenhada por código com animação fluida (baseada em tempo),
+          borda preta, crescimento suave (cresce e encolhe)
 
 ---
 

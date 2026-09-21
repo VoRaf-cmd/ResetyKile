@@ -10,7 +10,6 @@ public enum PlayerState { Normal, Dashing, WallSlide, LickingKatana, Super, Dead
 
 public class Player
 {
-    // ---------- Constantes de tuning ----------
     private const float Gravity       = 900f;
     private const float MaxFall       = 160f;
     private const float RunSpeed      = 90f;
@@ -45,14 +44,13 @@ public class Player
     public  const float StaminaRegenGround = 1f / 1.2f;
     public  const float StaminaRegenAir    = 1f / 3.0f;
 
-    // Sprite (16×24 agora)
     public const int SpriteWidth  = 16;
     public const int SpriteHeight = 24;
-
-    // Offset vertical do sprite (pra alinhar visualmente com a hitbox)
     private const float SpriteYOffset = -6f;
+    public  const float SpriteYOffsetPublic = -6f;
 
-    // ---------- Estado ----------
+    private const float DropDuration = 0.2f;
+
     public Vector2 Position;
     public Vector2 Velocity;
     public Vector2 Size = new(8, 11);
@@ -80,8 +78,13 @@ public class Player
     public bool IsAttacking => _attackTimer > 0f;
     public bool HasHitThisSwing { get; private set; }
 
+    private float _dropTimer;
+    public bool IsDroppingThrough => _dropTimer > 0f;
+
     private AnimationPlayer _anim = new();
     private Dictionary<string, Animation> _animations = new();
+
+    private Katana _katana = new();
 
     public const int MaxSouls = 10;
 
@@ -90,6 +93,18 @@ public class Player
     public bool IsDashing => State == PlayerState.Dashing;
     public bool SuperReady => Souls >= MaxSouls;
     public bool CanDash(float cost) => Stamina >= cost || State == PlayerState.Super;
+
+    public SpriteSheet? CurrentSheet
+    {
+        get
+        {
+            if (_animations.TryGetValue(_anim.CurrentName, out var anim))
+                return anim.Sheet;
+            return null;
+        }
+    }
+
+    public int CurrentFrame => _anim.CurrentFrameIndex;
 
     public Player()
     {
@@ -101,7 +116,6 @@ public class Player
         const string basePath = "Assets/sprites/kile";
 
         AddAnim("idle",       $"{basePath}/idle.png",      4, 0.15f, true,  new Color((byte)240, (byte)240, (byte)240, (byte)255));
-        AddAnim("idle_b",       $"{basePath}/idle_b.png",      4, 0.15f, true,  new Color((byte)240, (byte)240, (byte)240, (byte)255));
         AddAnim("run",        $"{basePath}/run.png",       6, 0.12f, true,  new Color((byte)120, (byte)220, (byte)255, (byte)255));
         AddAnim("jump",       $"{basePath}/jump.png",      2, 0.10f, false, new Color((byte)140, (byte)255, (byte)140, (byte)255));
         AddAnim("fall",       $"{basePath}/fall.png",      2, 0.15f, true,  new Color((byte)200, (byte)180, (byte)255, (byte)255));
@@ -182,6 +196,11 @@ public class Player
 
     public void MarkHit() => HasHitThisSwing = true;
 
+    public void Reset(Vector2 spawnPos)
+    {
+        Respawn(spawnPos);
+    }
+
     public void Respawn(Vector2 spawnPos)
     {
         Position = spawnPos;
@@ -197,7 +216,9 @@ public class Player
         _coyote = _jumpBuf = _varJump = 0f;
         _dashTimer = _lickTimer = 0f;
         _attackTimer = _attackCd = 0f;
+        _dropTimer = 0f;
         Facing = 1;
+        _katana.Enabled = false;
     }
 
     public void Update(float dt, InputState input, Level level)
@@ -209,6 +230,7 @@ public class Player
         _attackTimer = MathF.Max(0, _attackTimer - dt);
         _attackCd    = MathF.Max(0, _attackCd - dt);
         InvulnTimer  = MathF.Max(0, InvulnTimer - dt);
+        _dropTimer   = MathF.Max(0, _dropTimer - dt);
 
         if (State == PlayerState.Dead)
         {
@@ -217,6 +239,7 @@ public class Player
             MoveY(Velocity.Y * dt, level);
             Velocity.X = MathUtil.Approach(Velocity.X, 0f, RunDeccel * dt);
             UpdateAnimation(dt);
+            UpdateKatana();
             return;
         }
 
@@ -249,6 +272,7 @@ public class Player
                 Stamina = MaxStamina;
             }
             UpdateAnimation(dt);
+            UpdateKatana();
             return;
         }
 
@@ -258,7 +282,15 @@ public class Player
             _lickTimer = LickDuration;
             Velocity = Vector2.Zero;
             UpdateAnimation(dt);
+            UpdateKatana();
             return;
+        }
+
+        if (_onGround && input.MoveDownPressed && IsOnPlatform(level))
+        {
+            _dropTimer = DropDuration;
+            _onGround = false;
+            Velocity.Y = 30f;
         }
 
         bool attackBuffered = input.AttackPressed;
@@ -341,6 +373,7 @@ public class Player
 
         if (!IsAttacking) HasHitThisSwing = false;
         UpdateAnimation(dt);
+        UpdateKatana();
     }
 
     private void UpdateAnimation(float dt)
@@ -350,6 +383,37 @@ public class Player
             _anim.Play(targetAnim, anim);
 
         _anim.Update(dt);
+    }
+
+    private void UpdateKatana()
+    {
+        if (!IsAttacking)
+        {
+            _katana.Enabled = false;
+            return;
+        }
+
+        _katana.Enabled = true;
+        _katana.Facing = Facing;
+        _katana.Position = new Vector2(4f, 0f);   // ajuste se quiser mais alto/baixo
+
+        // Progresso baseado no TEMPO restante do attack (não no frame)
+        // AttackDuration = 0.15s
+        // t vai de 1 (começo) a 0 (fim)
+        float t = _attackTimer / AttackDuration;
+
+        // Fase 1 (t = 1.0 → 0.5): katana cresce (0% → 100%)
+        // Fase 2 (t = 0.5 → 0.0): katana encolhe (100% → 0%)
+        // Isso dá um efeito de "corta e volta"
+        float progress;
+        if (t > 0.5f)
+            progress = (1f - t) * 2f;   // 0 → 1
+        else
+            progress = t * 2f;           // 1 → 0
+
+        // Alpha: sempre 1 durante o attack
+        _katana.Alpha = 1f;
+        _katana.Progress = progress;
     }
 
     private string ChooseAnimation()
@@ -386,8 +450,12 @@ public class Player
             _                         => Color.White,
         };
 
+        // 1) Desenha o sprite do Kile
         var drawPos = new Vector2(Position.X, Position.Y + SpriteYOffset);
         _anim.DrawCentered(drawPos, Facing < 0, tint);
+
+        // 2) Desenha a katana DEPOIS (na frente)
+        _katana.Draw(Position);
     }
 
     private int DetectWall(Level level)
@@ -395,9 +463,24 @@ public class Player
         var r = Bounds;
         var probeL = new Rectangle(r.X - 1f, r.Y, 1f, r.Height);
         var probeR = new Rectangle(r.X + r.Width, r.Y, 1f, r.Height);
-        if (level.CollidesAny(probeL)) return -1;
-        if (level.CollidesAny(probeR)) return  1;
+        if (level.CollidesAny(probeL, false)) return -1;
+        if (level.CollidesAny(probeR, false)) return  1;
         return 0;
+    }
+
+    private bool IsOnPlatform(Level level)
+    {
+        var feet = new Rectangle(
+            Position.X - Size.X / 2f + 1f,
+            Position.Y + Size.Y / 2f,
+            Size.X - 2f,
+            2f);
+
+        foreach (var t in level.PlatformTilesNear(feet))
+            if (Raylib.CheckCollisionRecs(feet, t))
+                return true;
+
+        return false;
     }
 
     private void MoveX(float dx, Level level)
@@ -419,6 +502,7 @@ public class Player
         _onGround = false;
         Position.Y += dy;
         var rect = Bounds;
+
         foreach (var t in level.SolidTilesNear(rect))
         {
             if (!Raylib.CheckCollisionRecs(rect, t)) continue;
@@ -426,6 +510,18 @@ public class Player
             else        { Position.Y = t.Y + t.Height + Size.Y / 2f; }
             Velocity.Y = 0;
             rect = Bounds;
+        }
+
+        if (dy > 0 && !IsDroppingThrough)
+        {
+            foreach (var t in level.PlatformTilesNear(rect))
+            {
+                if (!Raylib.CheckCollisionRecs(rect, t)) continue;
+                Position.Y = t.Y - Size.Y / 2f;
+                _onGround = true;
+                Velocity.Y = 0;
+                rect = Bounds;
+            }
         }
     }
 }
