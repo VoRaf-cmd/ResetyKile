@@ -3,6 +3,9 @@ using System.Numerics;
 
 namespace ResetyKile.Core;
 
+public enum InputDevice { Keyboard, Gamepad }
+public enum GamepadBrand { Unknown, Xbox, PlayStation }
+
 public struct InputState
 {
     public Vector2 Move;
@@ -20,52 +23,63 @@ public struct InputState
 
 public static class Input
 {
-    // ---- Botões do gamepad ----
     private const GamepadButton GP_Jump  = GamepadButton.RightFaceDown;  // A / Cross
     private const GamepadButton GP_Dash  = GamepadButton.RightFaceLeft;  // X / Square
     private const GamepadButton GP_Super = GamepadButton.RightFaceRight; // B / Circle
     private const GamepadButton GP_Pause = GamepadButton.MiddleRight;    // Start / Options
 
-    // ---- Analógicos ----
     private const GamepadAxis AX_LX = GamepadAxis.LeftX;
     private const GamepadAxis AX_LY = GamepadAxis.LeftY;
     private const GamepadAxis AX_RT = GamepadAxis.RightTrigger;
 
-    // ---- Deadzones ----
     private const float Deadzone        = 0.25f;
     private const float TriggerDeadzone = 0.5f;
 
-    // Cache do gatilho (edge detection do ataque)
     private static bool _prevTriggerDown;
+
+    // ---- Detecção de dispositivo ----
+    public static InputDevice LastDevice { get; private set; } = InputDevice.Keyboard;
+    public static GamepadBrand Brand    { get; private set; } = GamepadBrand.Unknown;
 
     public static InputState Read()
     {
         var s = new InputState();
         bool pad = Raylib.IsGamepadAvailable(0);
 
+        // Detecta brand do gamepad (uma vez)
+        if (pad && Brand == GamepadBrand.Unknown)
+            Brand = DetectBrand();
+
         // ---- Movimento horizontal ----
         float mx = 0f;
-        if (Raylib.IsKeyDown(KeyboardKey.A)) mx -= 1f;
-        if (Raylib.IsKeyDown(KeyboardKey.D)) mx += 1f;
+        bool keyboardUsed = false;
+        bool gamepadUsed = false;
+
+        if (Raylib.IsKeyDown(KeyboardKey.A)) { mx -= 1f; keyboardUsed = true; }
+        if (Raylib.IsKeyDown(KeyboardKey.D)) { mx += 1f; keyboardUsed = true; }
 
         if (pad)
         {
             float ax = Raylib.GetGamepadAxisMovement(0, AX_LX);
-            if (MathF.Abs(ax) > Deadzone) mx = ax;
+            if (MathF.Abs(ax) > Deadzone) { mx = ax; gamepadUsed = true; }
 
-            if (Raylib.IsGamepadButtonDown(0, GamepadButton.LeftFaceLeft))  mx = -1f;
-            if (Raylib.IsGamepadButtonDown(0, GamepadButton.LeftFaceRight)) mx =  1f;
+            if (Raylib.IsGamepadButtonDown(0, GamepadButton.LeftFaceLeft))  { mx = -1f; gamepadUsed = true; }
+            if (Raylib.IsGamepadButtonDown(0, GamepadButton.LeftFaceRight)) { mx =  1f; gamepadUsed = true; }
         }
 
         s.Move     = new Vector2(mx, 0f);
         s.MoveXInt = MathF.Abs(mx) < Deadzone ? 0 : Math.Sign(mx);
 
-        // ---- Movimento vertical (baixo) — teclado, D-pad e analógico ----
+        // ---- Movimento vertical ----
         bool padDownPressed = pad && Raylib.IsGamepadButtonPressed(0, GamepadButton.LeftFaceDown);
         bool stickDown      = pad && Raylib.GetGamepadAxisMovement(0, AX_LY) > 0.5f;
+        bool sKeyPressed    = Raylib.IsKeyPressed(KeyboardKey.S);
+        bool downKeyPressed = Raylib.IsKeyPressed(KeyboardKey.Down);
 
-        s.MoveDownPressed = Raylib.IsKeyPressed(KeyboardKey.S) || Raylib.IsKeyPressed(KeyboardKey.Down)
-                         || padDownPressed || stickDown;
+        s.MoveDownPressed = sKeyPressed || downKeyPressed || padDownPressed || stickDown;
+
+        if (sKeyPressed || downKeyPressed) keyboardUsed = true;
+        if (padDownPressed || stickDown) gamepadUsed = true;
 
         // ---- Jump ----
         s.JumpHeld     = Raylib.IsKeyDown(KeyboardKey.Space) || Raylib.IsKeyDown(KeyboardKey.C)
@@ -75,13 +89,19 @@ public static class Input
         s.JumpReleased = Raylib.IsKeyReleased(KeyboardKey.Space) || Raylib.IsKeyReleased(KeyboardKey.C)
                       || (pad && Raylib.IsGamepadButtonReleased(0, GP_Jump));
 
+        if (Raylib.IsKeyPressed(KeyboardKey.Space) || Raylib.IsKeyPressed(KeyboardKey.C)) keyboardUsed = true;
+        if (pad && Raylib.IsGamepadButtonPressed(0, GP_Jump)) gamepadUsed = true;
+
         // ---- Dash ----
         s.DashHeld    = Raylib.IsKeyDown(KeyboardKey.LeftShift) || Raylib.IsKeyDown(KeyboardKey.X)
                      || (pad && Raylib.IsGamepadButtonDown(0, GP_Dash));
         s.DashPressed = Raylib.IsKeyPressed(KeyboardKey.LeftShift) || Raylib.IsKeyPressed(KeyboardKey.X)
                      || (pad && Raylib.IsGamepadButtonPressed(0, GP_Dash));
 
-        // ---- Attack (RT/R2 tratado como botão) ----
+        if (Raylib.IsKeyPressed(KeyboardKey.LeftShift) || Raylib.IsKeyPressed(KeyboardKey.X)) keyboardUsed = true;
+        if (pad && Raylib.IsGamepadButtonPressed(0, GP_Dash)) gamepadUsed = true;
+
+        // ---- Attack ----
         bool trigger = pad && Raylib.GetGamepadAxisMovement(0, AX_RT) > TriggerDeadzone;
         bool atkKeyDown    = Raylib.IsKeyDown(KeyboardKey.Z)    || Raylib.IsKeyDown(KeyboardKey.J);
         bool atkKeyPressed = Raylib.IsKeyPressed(KeyboardKey.Z) || Raylib.IsKeyPressed(KeyboardKey.J);
@@ -90,26 +110,80 @@ public static class Input
         s.AttackPressed = atkKeyPressed || (trigger && !_prevTriggerDown);
         _prevTriggerDown = trigger;
 
+        if (atkKeyPressed) keyboardUsed = true;
+        if (trigger) gamepadUsed = true;
+
         // ---- Super ----
         s.SuperHeld    = Raylib.IsKeyDown(KeyboardKey.E) || Raylib.IsKeyDown(KeyboardKey.K)
                       || (pad && Raylib.IsGamepadButtonDown(0, GP_Super));
         s.SuperPressed = Raylib.IsKeyPressed(KeyboardKey.E) || Raylib.IsKeyPressed(KeyboardKey.K)
                       || (pad && Raylib.IsGamepadButtonPressed(0, GP_Super));
 
+        if (Raylib.IsKeyPressed(KeyboardKey.E) || Raylib.IsKeyPressed(KeyboardKey.K)) keyboardUsed = true;
+        if (pad && Raylib.IsGamepadButtonPressed(0, GP_Super)) gamepadUsed = true;
+
         // ---- Pause ----
         s.PausePressed = Raylib.IsKeyPressed(KeyboardKey.Escape)
                       || (pad && Raylib.IsGamepadButtonPressed(0, GP_Pause));
 
-        // ---- Reset (R / Select / L3 / R3) ----
+        // ---- Reset ----
         s.ResetPressed = Raylib.IsKeyPressed(KeyboardKey.R)
                       || (pad && (Raylib.IsGamepadButtonPressed(0, GamepadButton.MiddleLeft)
                               ||  Raylib.IsGamepadButtonPressed(0, GamepadButton.LeftThumb)
                               ||  Raylib.IsGamepadButtonPressed(0, GamepadButton.RightThumb)));
 
+        // ---- Atualiza último dispositivo ----
+        // Prioriza gamepad se foi apertado (mais recente)
+        if (gamepadUsed) LastDevice = InputDevice.Gamepad;
+        else if (keyboardUsed) LastDevice = InputDevice.Keyboard;
+
         return s;
     }
 
-    /// Direção do dash (8 direções). Se não houver direção, usa o facing.
+    private static GamepadBrand DetectBrand()
+    {
+        try
+        {
+            unsafe
+            {
+                sbyte* raw = Raylib.GetGamepadName(0);
+                if (raw == null) return GamepadBrand.Unknown;
+
+                string name = System.Runtime.InteropServices.Marshal.PtrToStringAnsi((IntPtr)raw) ?? "";
+                name = name.ToLowerInvariant();
+
+                if (name.Contains("sony") || name.Contains("dualshock") || name.Contains("dualsense")
+                    || name.Contains("playstation") || name.Contains("ps3") || name.Contains("ps4") || name.Contains("ps5"))
+                    return GamepadBrand.PlayStation;
+
+                if (name.Contains("xbox") || name.Contains("xinput") || name.Contains("microsoft"))
+                    return GamepadBrand.Xbox;
+
+                return GamepadBrand.Unknown;
+            }
+        }
+        catch
+        {
+            return GamepadBrand.Unknown;
+        }
+    }
+
+    /// Texto do botão de pulo pro indicador (depende do último dispositivo/brand)
+    public static string GetJumpButtonLabel()
+    {
+        if (LastDevice == InputDevice.Gamepad)
+        {
+            return Brand switch
+            {
+                GamepadBrand.PlayStation => "X",
+                GamepadBrand.Xbox        => "A",
+                _                         => "A",
+            };
+        }
+
+        return "SPACE";
+    }
+
     public static (int x, int y) DashDirection(InputState s, int facing)
     {
         int x = 0, y = 0;

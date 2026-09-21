@@ -24,6 +24,20 @@ public class Player
     private const float DashSpeed     = 240f;
     private const float DashTime      = 0.15f;
 
+    // Wall jump
+    private const float WallJumpTapDelay    = 0.10f;
+    private const float WallJumpChargeTime  = 0.6f;
+    private const float WallJumpMinBoost    = 120f;
+    private const float WallJumpMaxBoost    = 280f;
+    private const float WallJumpMinCharge   = 0.33f;
+    private const float WallJumpCooldown    = 0.15f;
+    private const float WallJumpInputLock   = 0.15f;
+    private const float WallJumpAnimDuration = 0.35f;
+
+    // Momentum aéreo
+    private const float AirMomentumDuration = 0.5f;
+    private const float AirMomentumDecel    = 30f;
+
     private const float LickDuration  = 0.6f;
     private const float SuperDuration = 8.0f;
     private const int   SoulsToSuper  = 10;
@@ -72,6 +86,16 @@ public class Player
     private bool  _onGround;
     private int   _dashDirX, _dashDirY;
     private int   _wallDir;
+    private float _wallJumpInputLockTimer;
+    private float _wallJumpAnimTimer;
+    private float _wallJumpCooldownTimer;
+    private float _airMomentumTimer;
+
+    // Estados de wall jump (tap vs hold)
+    private bool  _jumpHeldOnWall = false;
+    private float _wallJumpHoldTimer = 0f;
+    private bool  _chargingWallJump = false;
+    private float _wallJumpCharge = 0f;
 
     private float _attackTimer;
     private float _attackCd;
@@ -85,6 +109,7 @@ public class Player
     private Dictionary<string, Animation> _animations = new();
 
     private Katana _katana = new();
+    private WallChargeArrow _chargeArrow = new();
 
     public const int MaxSouls = 10;
 
@@ -93,6 +118,9 @@ public class Player
     public bool IsDashing => State == PlayerState.Dashing;
     public bool SuperReady => Souls >= MaxSouls;
     public bool CanDash(float cost) => Stamina >= cost || State == PlayerState.Super;
+
+    public float WallChargeProgress => _chargingWallJump ? _wallJumpCharge : 0f;
+    public bool IsChargingWallJump => _chargingWallJump;
 
     public SpriteSheet? CurrentSheet
     {
@@ -121,7 +149,7 @@ public class Player
         AddAnim("fall",       $"{basePath}/fall.png",      2, 0.15f, true,  new Color((byte)200, (byte)180, (byte)255, (byte)255));
         AddAnim("dash",       $"{basePath}/dash.png",      2, 0.10f, false, new Color((byte)120, (byte)220, (byte)255, (byte)255));
         AddAnim("wall_slide", $"{basePath}/wall_slide.png",2, 0.15f, true,  new Color((byte)200, (byte)200, (byte)220, (byte)255));
-        AddAnim("wall_jump",  $"{basePath}/wall_jump.png", 2, 0.10f, false, new Color((byte)160, (byte)220, (byte)160, (byte)255));
+        AddAnim("wall_jump",  $"{basePath}/wall_jump.png", 2, 0.20f, false, new Color((byte)160, (byte)220, (byte)160, (byte)255));
         AddAnim("attack",     $"{basePath}/attack.png",    4, 0.04f, false, new Color((byte)255, (byte)220, (byte)120, (byte)255));
         AddAnim("lick",       $"{basePath}/lick.png",      6, 0.10f, false, new Color((byte)255, (byte)200, (byte)140, (byte)255));
         AddAnim("super_idle", $"{basePath}/super_idle.png",4, 0.15f, true,  new Color((byte)255, (byte)90, (byte)180, (byte)255));
@@ -217,8 +245,17 @@ public class Player
         _dashTimer = _lickTimer = 0f;
         _attackTimer = _attackCd = 0f;
         _dropTimer = 0f;
+        _wallJumpInputLockTimer = 0f;
+        _wallJumpAnimTimer = 0f;
+        _wallJumpCooldownTimer = 0f;
+        _airMomentumTimer = 0f;
+        _jumpHeldOnWall = false;
+        _wallJumpHoldTimer = 0f;
+        _chargingWallJump = false;
+        _wallJumpCharge = 0f;
         Facing = 1;
         _katana.Enabled = false;
+        _chargeArrow.Enabled = false;
     }
 
     public void Update(float dt, InputState input, Level level)
@@ -231,6 +268,10 @@ public class Player
         _attackCd    = MathF.Max(0, _attackCd - dt);
         InvulnTimer  = MathF.Max(0, InvulnTimer - dt);
         _dropTimer   = MathF.Max(0, _dropTimer - dt);
+        _wallJumpInputLockTimer = MathF.Max(0, _wallJumpInputLockTimer - dt);
+        _wallJumpAnimTimer      = MathF.Max(0, _wallJumpAnimTimer - dt);
+        _wallJumpCooldownTimer  = MathF.Max(0, _wallJumpCooldownTimer - dt);
+        _airMomentumTimer       = MathF.Max(0, _airMomentumTimer - dt);
 
         if (State == PlayerState.Dead)
         {
@@ -240,6 +281,7 @@ public class Player
             Velocity.X = MathUtil.Approach(Velocity.X, 0f, RunDeccel * dt);
             UpdateAnimation(dt);
             UpdateKatana();
+            _chargeArrow.Enabled = false;
             return;
         }
 
@@ -273,6 +315,7 @@ public class Player
             }
             UpdateAnimation(dt);
             UpdateKatana();
+            _chargeArrow.Enabled = false;
             return;
         }
 
@@ -283,6 +326,7 @@ public class Player
             Velocity = Vector2.Zero;
             UpdateAnimation(dt);
             UpdateKatana();
+            _chargeArrow.Enabled = false;
             return;
         }
 
@@ -307,6 +351,12 @@ public class Player
                     Stamina = MathF.Max(0f, Stamina - cost);
                 (_dashDirX, _dashDirY) = Input.DashDirection(input, Facing);
                 if (_dashDirX != 0) Facing = _dashDirX;
+                _airMomentumTimer = AirMomentumDuration;
+
+                _chargingWallJump = false;
+                _wallJumpHoldTimer = 0f;
+                _jumpHeldOnWall = false;
+                _wallJumpCharge = 0f;
             }
         }
 
@@ -316,49 +366,111 @@ public class Player
             if (_dashTimer <= 0f)
             {
                 State = PlayerState.Normal;
-                Velocity = Vector2.Normalize(Velocity) * 0.5f;
+                Velocity *= 0.6f;
             }
         }
         else
         {
-            float targetX = input.MoveXInt * RunSpeed;
-            float accel = _onGround
-                ? (input.MoveXInt != 0 ? RunAccel : RunDeccel)
-                : RunAccel * AirAccelMult;
+            int moveInput = _wallJumpInputLockTimer > 0f ? 0 : input.MoveXInt;
+
+            float targetX = moveInput * RunSpeed;
+            float accel;
+            if (!_onGround && _airMomentumTimer > 0f)
+                accel = AirMomentumDecel;
+            else if (_onGround)
+                accel = moveInput != 0 ? RunAccel : RunDeccel;
+            else
+                accel = RunAccel * AirAccelMult;
+
             Velocity.X = MathUtil.Approach(Velocity.X, targetX, accel * dt);
-            if (input.MoveXInt != 0) Facing = input.MoveXInt;
+            if (moveInput != 0) Facing = moveInput;
 
             float g = Gravity;
             if (Velocity.Y < 0 && input.JumpHeld) g *= 0.5f;
             if (MathF.Abs(Velocity.Y) < 40f && input.JumpHeld) g *= 0.5f;
             Velocity.Y = MathF.Min(Velocity.Y + g * dt, MaxFall);
 
+            // ---- Wall slide automático ----
             _wallDir = DetectWall(level);
-            if (!_onGround && _wallDir != 0 && input.MoveXInt == _wallDir && Velocity.Y > 0)
+            bool touchingWall = !_onGround && _wallDir != 0;
+
+            bool movingAwayFromWall = _wallDir != 0 && moveInput == -_wallDir;
+            bool movingDown = input.MoveDownPressed;
+
+            bool shouldWallSlide = touchingWall
+                                && !movingAwayFromWall
+                                && !movingDown
+                                && Velocity.Y > 0;
+
+            if (shouldWallSlide)
             {
                 State = PlayerState.WallSlide;
                 Velocity.Y = MathF.Min(Velocity.Y, 40f);
             }
-            else if (State == PlayerState.WallSlide)
+            else
             {
-                State = PlayerState.Normal;
+                if (State == PlayerState.WallSlide)
+                    State = PlayerState.Normal;
             }
 
-            if (_jumpBuf > 0f)
+            // ============================================================
+            // WALL JUMP (tap vs hold) — LÓGICA LINEAR CORRIGIDA
+            // ============================================================
+            bool onWall = State == PlayerState.WallSlide && _wallJumpCooldownTimer <= 0f;
+
+            // 1) Detecta o início do aperto (na parede)
+            if (onWall && input.JumpPressed && !_jumpHeldOnWall)
             {
-                if (_coyote > 0f)
+                _jumpHeldOnWall = true;
+                _wallJumpHoldTimer = 0f;
+                _chargingWallJump = false;
+                _wallJumpCharge = 0f;
+            }
+
+            // 2) Se tá segurando na parede, progride a carga
+            if (onWall && _jumpHeldOnWall && input.JumpHeld)
+            {
+                _wallJumpHoldTimer += dt;
+                if (_wallJumpHoldTimer >= WallJumpTapDelay)
                 {
-                    Velocity.Y = -JumpSpeed;
-                    Velocity.X += input.MoveXInt * JumpHBoost;
-                    _jumpBuf = 0f; _coyote = 0f; _varJump = VarJumpTime;
+                    _chargingWallJump = true;
+                    _wallJumpCharge = MathF.Min(_wallJumpCharge + dt / WallJumpChargeTime, 1f);
                 }
-                else if (_wallDir != 0)
-                {
-                    Velocity.X = -_wallDir * JumpHBoost * 1.5f;
-                    Velocity.Y = -JumpSpeed;
-                    _jumpBuf = 0f; _varJump = VarJumpTime;
-                    Facing = -_wallDir;
-                }
+            }
+
+            // 3) Detecta condições de disparo
+            bool released = _jumpHeldOnWall && !input.JumpHeld;
+            bool cancelAndFire = _chargingWallJump && movingAwayFromWall;
+
+            // 4) Dispara
+            if (_jumpHeldOnWall && (released || cancelAndFire))
+            {
+                if (_chargingWallJump && _wallJumpCharge >= WallJumpMinCharge)
+                    ExecuteHoldWallJump(_wallJumpCharge);
+                else
+                    ExecuteTapWallJump();
+
+                _jumpHeldOnWall = false;
+                _chargingWallJump = false;
+                _wallJumpCharge = 0f;
+                _wallJumpHoldTimer = 0f;
+            }
+
+            // 5) Se saiu da parede SEM disparar (caiu de repente, etc), reseta
+            if (!onWall && _jumpHeldOnWall && !cancelAndFire)
+            {
+                _jumpHeldOnWall = false;
+                _chargingWallJump = false;
+                _wallJumpCharge = 0f;
+                _wallJumpHoldTimer = 0f;
+            }
+
+            // ---- Pulo normal ----
+            if (_coyote > 0f && _jumpBuf > 0f && State != PlayerState.WallSlide)
+            {
+                Velocity.Y = -JumpSpeed;
+                Velocity.X += input.MoveXInt * JumpHBoost;
+                _jumpBuf = 0f; _coyote = 0f; _varJump = VarJumpTime;
             }
 
             if (_varJump > 0f)
@@ -371,9 +483,59 @@ public class Player
         MoveX(Velocity.X * dt, level);
         MoveY(Velocity.Y * dt, level);
 
+        if (_onGround)
+        {
+            _wallJumpAnimTimer = 0f;
+            _airMomentumTimer = 0f;
+        }
+
         if (!IsAttacking) HasHitThisSwing = false;
         UpdateAnimation(dt);
         UpdateKatana();
+        _chargeArrow.UpdateFade(dt);
+        UpdateChargeArrow();
+    }
+
+    private void ExecuteTapWallJump()
+    {
+        Velocity.Y = -JumpSpeed;
+        Velocity.X = 0f;
+        _varJump = VarJumpTime;
+        _coyote = 0f;
+        _wallJumpInputLockTimer = WallJumpInputLock;
+        _wallJumpAnimTimer = WallJumpAnimDuration;
+        _wallJumpCooldownTimer = WallJumpCooldown;
+    }
+
+    private void ExecuteHoldWallJump(float charge01)
+    {
+        float boost = WallJumpMinBoost + (WallJumpMaxBoost - WallJumpMinBoost) * Math.Clamp(charge01, 0f, 1f);
+
+        int dirX = -_wallDir;
+        Velocity.X = dirX * boost;
+        Velocity.Y = -JumpSpeed;
+        Facing = dirX;
+
+        _varJump = VarJumpTime;
+        _coyote = 0f;
+        _wallJumpInputLockTimer = WallJumpInputLock;
+        _wallJumpAnimTimer = WallJumpAnimDuration;
+        _wallJumpCooldownTimer = WallJumpCooldown;
+        _airMomentumTimer = AirMomentumDuration;
+    }
+
+    private void UpdateChargeArrow()
+    {
+        if (_chargingWallJump && _wallDir != 0)
+        {
+            _chargeArrow.Enabled = true;
+            _chargeArrow.Charge = _wallJumpCharge;
+            _chargeArrow.ButtonLabel = Core.Input.GetJumpButtonLabel();
+        }
+        else
+        {
+            _chargeArrow.Enabled = false;
+        }
     }
 
     private void UpdateAnimation(float dt)
@@ -395,29 +557,23 @@ public class Player
 
         _katana.Enabled = true;
         _katana.Facing = Facing;
-        _katana.Position = new Vector2(4f, 0f);   // ajuste se quiser mais alto/baixo
+        _katana.Position = new Vector2(4f, 0f);
 
-        // Progresso baseado no TEMPO restante do attack (não no frame)
-        // AttackDuration = 0.15s
-        // t vai de 1 (começo) a 0 (fim)
         float t = _attackTimer / AttackDuration;
 
-        // Fase 1 (t = 1.0 → 0.5): katana cresce (0% → 100%)
-        // Fase 2 (t = 0.5 → 0.0): katana encolhe (100% → 0%)
-        // Isso dá um efeito de "corta e volta"
         float progress;
         if (t > 0.5f)
-            progress = (1f - t) * 2f;   // 0 → 1
+            progress = (1f - t) * 2f;
         else
-            progress = t * 2f;           // 1 → 0
+            progress = t * 2f;
 
-        // Alpha: sempre 1 durante o attack
         _katana.Alpha = 1f;
         _katana.Progress = progress;
     }
 
     private string ChooseAnimation()
     {
+        if (_wallJumpAnimTimer > 0f)            return "wall_jump";
         if (State == PlayerState.LickingKatana) return "lick";
         if (State == PlayerState.Dead)          return "death";
         if (IsAttacking)                        return "attack";
@@ -441,6 +597,8 @@ public class Player
         bool blink = InvulnTimer > 0f
                   && ((int)(InvulnTimer * 20f) % 2 == 0);
 
+        _chargeArrow.Draw(Position, gameTime);
+
         if (blink) return;
 
         Color tint = State switch
@@ -450,11 +608,9 @@ public class Player
             _                         => Color.White,
         };
 
-        // 1) Desenha o sprite do Kile
         var drawPos = new Vector2(Position.X, Position.Y + SpriteYOffset);
         _anim.DrawCentered(drawPos, Facing < 0, tint);
 
-        // 2) Desenha a katana DEPOIS (na frente)
         _katana.Draw(Position);
     }
 
