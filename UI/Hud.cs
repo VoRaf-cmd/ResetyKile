@@ -13,7 +13,8 @@ public static class Hud
 
     private static readonly Color BoltFull     = new((byte)255, (byte)230, (byte)100, (byte)255);
     private static readonly Color BoltEmpty    = new((byte)70, (byte)60, (byte)50, (byte)255);
-    private static readonly Color BoltCharging = new((byte)200, (byte)180, (byte)80, (byte)255);
+    private static readonly Color BoltCharging = new((byte)220, (byte)200, (byte)90, (byte)255);
+    private static readonly Color BoltPaused   = new((byte)130, (byte)120, (byte)80, (byte)255);
 
     private static readonly Color SoulFull     = new((byte)255, (byte)210, (byte)90, (byte)255);
     private static readonly Color SoulEmpty    = new((byte)70, (byte)55, (byte)75, (byte)255);
@@ -33,7 +34,7 @@ public static class Hud
         DrawHeartRow(x, y, player.Hp, Player.MaxHp, player.Shield, time);
 
         int staminaY = y + RowHeight + 1;
-        DrawStaminaRow(x, staminaY, player.Stamina, Player.MaxStamina, time);
+        DrawStaminaRow(x, staminaY, player, time);
 
         int soulsY = staminaY + RowHeight + 1;
         DrawSoulRow(x, soulsY, player.Souls, Player.MaxSouls, player.SuperReady);
@@ -58,22 +59,15 @@ public static class Hud
     {
         int hearts = maxHp / 4;
 
-        // Descobre qual é o ÚLTIMO coração que tem vida (pra aplicar escudo)
-        // Ex: hp=7 -> corações com vida: 0 (4 pts) e 1 (3 pts). Último = índice 1.
-        int lastFilledHeartIndex = -1;
-        if (hp > 0)
-            lastFilledHeartIndex = (hp - 1) / 4;
-        if (lastFilledHeartIndex >= hearts) lastFilledHeartIndex = hearts - 1;
-
         for (int i = 0; i < hearts; i++)
         {
             int hx = x + i * (SlotSize + SlotGap);
             int hpNoCoracao = hp - (i * 4);
 
-            bool hasShieldHere = shield && i == lastFilledHeartIndex && hpNoCoracao > 0;
-
+            bool isTopHeart = (i == hearts - 1 && shield && hpNoCoracao > 0);
             Color fillColor;
-            if (hasShieldHere)
+
+            if (isTopHeart)
             {
                 float pulse = (MathF.Sin(time * 6f) + 1f) * 0.5f;
                 fillColor = LerpColor(HeartShieldDark, HeartShield, pulse);
@@ -144,7 +138,7 @@ public static class Hud
     }
 
     // ============================================================
-    // STAMINA
+    // STAMINA (raios tremendo enquanto carrega)
     // ============================================================
     private static readonly string[] BoltMask =
     {
@@ -155,32 +149,29 @@ public static class Hud
         "01100",
     };
 
-    private static void DrawStaminaRow(int x, int y, float stamina, int maxStamina, float time)
+    private static void DrawStaminaRow(int x, int y, Player player, float time)
     {
-        for (int i = 0; i < maxStamina; i++)
+        float stamina = player.Stamina;
+        int maxRaios = (int)Player.MaxStamina;
+
+        // Quantos raios cheios
+        int fullRaios = (int)MathF.Floor(stamina);
+        // Fração do próximo raio (0..1)
+        float frac = stamina - fullRaios;
+
+        bool paused = player.IsStaminaPaused;
+        float regenProgress = player.StaminaRegenProgress;
+
+        for (int i = 0; i < maxRaios; i++)
         {
             int bx = x + i * (SlotSize + SlotGap);
-            float value = stamina - i;
 
-            Color color;
-            bool charging = false;
-            if (value >= 1f)
-            {
-                color = BoltFull;
-            }
-            else if (value > 0f)
-            {
-                color = BoltCharging;
-                charging = true;
-            }
-            else
-            {
-                color = BoltEmpty;
-            }
+            bool full = i < fullRaios;
+            bool charging = (i == fullRaios) && !full && stamina < Player.MaxStamina;
 
-            int shakeX = 0;
-            int shakeY = 0;
-            if (charging)
+            // Tremida
+            int shakeX = 0, shakeY = 0;
+            if (charging && !paused)
             {
                 float phase = time * 40f + i * 1.7f;
                 shakeX = (int)(MathF.Sin(phase) * 1.5f);
@@ -190,10 +181,16 @@ public static class Hud
             Raylib.DrawRectangle(bx - 1, y - 1, SlotSize + 2, SlotSize + 2, Outline);
             DrawBoltMask(bx + shakeX, y + shakeY, SlotSize, BoltEmpty);
 
-            if (value > 0f)
+            if (full)
             {
-                float fillFrac = Math.Clamp(value, 0f, 1f);
-                DrawBoltMaskPartialHorizontal(bx + shakeX, y + shakeY, SlotSize, color, fillFrac);
+                // Raio cheio
+                DrawBoltMask(bx, y, SlotSize, BoltFull);
+            }
+            else if (charging)
+            {
+                // Raio carregando — preenche de baixo pra cima
+                Color c = paused ? BoltPaused : BoltCharging;
+                DrawBoltPartial(bx + shakeX, y + shakeY, SlotSize, c, regenProgress);
             }
         }
     }
@@ -212,31 +209,38 @@ public static class Hud
                         color);
     }
 
-    private static void DrawBoltMaskPartialHorizontal(int x, int y, int size, Color color, float fillFrac)
+    /// Preenche o raio de baixo pra cima conforme o progresso (0..1).
+    private static void DrawBoltPartial(int x, int y, int size, Color color, float progress)
     {
+        if (progress <= 0f) return;
+        if (progress >= 1f)
+        {
+            DrawBoltMask(x, y, size, color);
+            return;
+        }
+
         float px = size / 5f;
-        float maxX = x + size * fillFrac;
+        // Progresso em "linhas" (de baixo pra cima)
+        int totalRows = 5;
+        int rowsToFill = (int)MathF.Ceiling(progress * totalRows);
 
         for (int row = 0; row < 5; row++)
+        {
+            // Linhas de baixo pra cima: 4, 3, 2, 1, 0
+            int rowFromBottom = 4 - row;
+            if (rowFromBottom >= rowsToFill) continue;
+
             for (int col = 0; col < 5; col++)
             {
                 if (BoltMask[row][col] != '1') continue;
-
-                float cellX = x + col * px;
-                float cellRight = cellX + px;
-                if (cellX > maxX) continue;
-
-                float visible = MathF.Min(cellRight, maxX) - cellX;
-                if (visible <= 0f) continue;
-
-                int drawW = (int)MathF.Ceiling(visible);
                 Raylib.DrawRectangle(
-                    (int)cellX,
+                    (int)(x + col * px),
                     (int)(y + row * px),
-                    drawW,
+                    (int)MathF.Ceiling(px),
                     (int)MathF.Ceiling(px),
                     color);
             }
+        }
     }
 
     // ============================================================

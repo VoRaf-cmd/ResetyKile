@@ -216,7 +216,7 @@ public static class Program
                             continue;
                         }
 
-                        player.Update(FixedDt, input, level);
+                        player.Update(FixedDt, input, level, enemies);
                         player.TryAttack(input);
 
                         if (player.IsAttacking && !player.HasHitThisSwing)
@@ -349,6 +349,7 @@ public static class Program
                 accumulator = 0f;
             }
 
+            // =================== RENDER ===================
             renderer.Begin();
             Raylib.ClearBackground(new Color((byte)220, (byte)210, (byte)190, (byte)255));
 
@@ -474,6 +475,9 @@ public static class Program
         }
     }
 
+    // ============================================================
+    // ATAQUE NORMAL
+    // ============================================================
     private static void ProcessNormalAttack(List<Enemy> hitTargets, Player player,
         ScreenShake shake, HitStop hitStop, Particles particles,
         SessionStats stats, FloatingText floatingText)
@@ -522,11 +526,15 @@ public static class Program
         }
     }
 
+    // ============================================================
+    // DASH-ATTACK
+    // ============================================================
     private static void ProcessDashAttack(List<Enemy> hitTargets, Player player,
         ScreenShake shake, HitStop hitStop, Particles particles,
         SessionStats stats, FloatingText floatingText)
     {
         int kbDir = player.Facing;
+        int kills = 0;   // ← contador de kills neste dash-attack
 
         var sorted = new List<Enemy>(hitTargets);
         sorted.Sort((a, b) =>
@@ -554,6 +562,7 @@ public static class Program
                 if (died)
                 {
                     killCount++;
+                    kills++;   // ← conta
                     player.AddSoul(1);
                     stats.RegisterKill(true);
                     particles.Burst(e.Position, 14, new Color((byte)255, (byte)120, (byte)120, (byte)255),
@@ -571,6 +580,7 @@ public static class Program
                 if (died)
                 {
                     killCount++;
+                    kills++;   // ← conta
                     player.AddSoul(1);
                     stats.RegisterKill(true);
                     particles.Burst(e.Position, 14, new Color((byte)255, (byte)120, (byte)120, (byte)255),
@@ -586,8 +596,15 @@ public static class Program
                 }
             }
         }
+
+        // Recompensa de stamina
+        if (kills > 0)
+            player.RegisterDashAttackHit(sorted.Count, kills);
     }
 
+    // ============================================================
+    // INIMIGOS
+    // ============================================================
     private static void DrawEnemies(List<Enemy> enemies)
     {
         var sorted = new List<Enemy>(enemies.Count);

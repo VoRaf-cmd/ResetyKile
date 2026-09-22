@@ -38,6 +38,18 @@ public class Player
     private const float AirMomentumDuration = 0.5f;
     private const float AirMomentumDecel    = 30f;
 
+    // Stamina
+    public  const float MaxStamina              = 3f;
+    public  const float DashCost                = 1.0f;
+    private const float StaminaRegenWithCharges = 12f;
+    private const float StaminaRegenEmpty       = 35f;
+    private const float ThreatRange             = 150f;
+    private const int   MaxThreatsAllowed       = 2;
+
+    // Recompensa de dash-attack
+    private const float DashAttackRewardOne = 0.5f;
+    private const float DashAttackRewardTwo = 1.0f;
+
     private const float LickDuration  = 0.6f;
     private const float SuperDuration = 8.0f;
     private const int   SoulsToSuper  = 10;
@@ -51,12 +63,6 @@ public class Player
     private const float InvulnDuration     = 1.0f;
     private const float KnockbackX         = 120f;
     private const float KnockbackY         = -90f;
-
-    public  const int   MaxStamina         = 3;
-    public  const float DashCost           = 1.0f;
-    public  const float DashAttackCost     = 1.5f;
-    public  const float StaminaRegenGround = 1f / 1.2f;
-    public  const float StaminaRegenAir    = 1f / 3.0f;
 
     public const int SpriteWidth  = 16;
     public const int SpriteHeight = 24;
@@ -75,7 +81,10 @@ public class Player
     public int Hp    { get; private set; } = MaxHp;
     public bool Shield { get; private set; }
     public float SuperTimer { get; private set; }
+
     public float Stamina { get; private set; } = MaxStamina;
+    private float _staminaRegenTimer = 0f;
+    private int   _nearbyThreats = 0;
 
     public float InvulnTimer { get; private set; }
     public bool IsInvulnerable => InvulnTimer > 0f
@@ -91,7 +100,6 @@ public class Player
     private float _wallJumpCooldownTimer;
     private float _airMomentumTimer;
 
-    // Estados de wall jump (tap vs hold)
     private bool  _jumpHeldOnWall = false;
     private float _wallJumpHoldTimer = 0f;
     private bool  _chargingWallJump = false;
@@ -110,6 +118,7 @@ public class Player
 
     private Katana _katana = new();
     private WallChargeArrow _chargeArrow = new();
+    private FloatingText _floatingText = new();
 
     public const int MaxSouls = 10;
 
@@ -117,7 +126,25 @@ public class Player
     public bool OnGround => _onGround;
     public bool IsDashing => State == PlayerState.Dashing;
     public bool SuperReady => Souls >= MaxSouls;
-    public bool CanDash(float cost) => Stamina >= cost || State == PlayerState.Super;
+
+    public bool CanDash(float cost)
+    {
+        if (State == PlayerState.Super) return true;
+        return Stamina >= cost;
+    }
+
+    public float StaminaRegenProgress
+    {
+        get
+        {
+            if (Stamina >= MaxStamina) return 1f;
+            float timeNeeded = Stamina >= 1f ? StaminaRegenWithCharges : StaminaRegenEmpty;
+            return Math.Clamp(_staminaRegenTimer / timeNeeded, 0f, 1f);
+        }
+    }
+
+    public int NearbyThreats => _nearbyThreats;
+    public bool IsStaminaPaused => _nearbyThreats > MaxThreatsAllowed;
 
     public float WallChargeProgress => _chargingWallJump ? _wallJumpCharge : 0f;
     public bool IsChargingWallJump => _chargingWallJump;
@@ -173,6 +200,24 @@ public class Player
     public void AddSoul(int amount = 1)
         => Souls = Math.Clamp(Souls + amount, 0, MaxSouls);
 
+    public void AddStamina(float amount)
+    {
+        float before = Stamina;
+        Stamina = Math.Clamp(Stamina + amount, 0f, MaxStamina);
+
+        float gained = Stamina - before;
+        if (gained > 0.01f)
+        {
+            string label = gained >= 1f
+                ? $"+{(int)gained}"
+                : $"+{gained:0.#}";
+
+            _floatingText.Spawn(label, Position + new Vector2(0f, -18f),
+                new Color((byte)255, (byte)220, (byte)100, (byte)255), 0.9f,
+                FloatingIcon.Bolt);
+        }
+    }
+
     public void TakeDamage(int amount, int fromDirX)
     {
         if (IsInvulnerable) return;
@@ -224,6 +269,15 @@ public class Player
 
     public void MarkHit() => HasHitThisSwing = true;
 
+    public void RegisterDashAttackHit(int totalHits, int killed)
+    {
+        // Dash-attack é feature (tech), sem recompensa por enquanto.
+        // Se um dia quiser dar recompensa, é só descomentar:
+        // if (killed <= 0) return;
+        // float reward = killed >= 2 ? DashAttackRewardTwo : DashAttackRewardOne;
+        // AddStamina(reward);
+    }
+
     public void Reset(Vector2 spawnPos)
     {
         Respawn(spawnPos);
@@ -240,6 +294,8 @@ public class Player
         SuperTimer = 0f;
         InvulnTimer = 0f;
         Stamina = MaxStamina;
+        _staminaRegenTimer = 0f;
+        _nearbyThreats = 0;
         _onGround = false;
         _coyote = _jumpBuf = _varJump = 0f;
         _dashTimer = _lickTimer = 0f;
@@ -258,7 +314,7 @@ public class Player
         _chargeArrow.Enabled = false;
     }
 
-    public void Update(float dt, InputState input, Level level)
+    public void Update(float dt, InputState input, Level level, List<Enemy>? enemies = null)
     {
         _coyote      = _onGround ? CoyoteTime : MathF.Max(0, _coyote - dt);
         _jumpBuf     = input.JumpPressed ? JumpBuffer : MathF.Max(0, _jumpBuf - dt);
@@ -272,6 +328,10 @@ public class Player
         _wallJumpAnimTimer      = MathF.Max(0, _wallJumpAnimTimer - dt);
         _wallJumpCooldownTimer  = MathF.Max(0, _wallJumpCooldownTimer - dt);
         _airMomentumTimer       = MathF.Max(0, _airMomentumTimer - dt);
+
+        _nearbyThreats = CountNearbyThreats(enemies);
+        UpdateStaminaRegen(dt);
+        _floatingText.Update(dt);
 
         if (State == PlayerState.Dead)
         {
@@ -289,12 +349,6 @@ public class Player
         {
             SuperTimer -= dt;
             if (SuperTimer <= 0f) State = PlayerState.Normal;
-        }
-
-        if (State != PlayerState.Super && Stamina < MaxStamina)
-        {
-            float regenRate = _onGround ? StaminaRegenGround : StaminaRegenAir;
-            Stamina = MathF.Min(Stamina + regenRate * dt, MaxStamina);
         }
 
         if (State == PlayerState.LickingKatana)
@@ -337,18 +391,18 @@ public class Player
             Velocity.Y = 30f;
         }
 
-        bool attackBuffered = input.AttackPressed;
         bool wantDash = input.DashPressed && State != PlayerState.Dashing;
 
         if (wantDash)
         {
-            float cost = attackBuffered ? DashAttackCost : DashCost;
-            if (CanDash(cost))
+            if (CanDash(DashCost))
             {
                 State = PlayerState.Dashing;
                 _dashTimer = DashTime;
+
                 if (State != PlayerState.Super)
-                    Stamina = MathF.Max(0f, Stamina - cost);
+                    Stamina = MathF.Max(0f, Stamina - DashCost);
+
                 (_dashDirX, _dashDirY) = Input.DashDirection(input, Facing);
                 if (_dashDirX != 0) Facing = _dashDirX;
                 _airMomentumTimer = AirMomentumDuration;
@@ -390,7 +444,6 @@ public class Player
             if (MathF.Abs(Velocity.Y) < 40f && input.JumpHeld) g *= 0.5f;
             Velocity.Y = MathF.Min(Velocity.Y + g * dt, MaxFall);
 
-            // ---- Wall slide automático ----
             _wallDir = DetectWall(level);
             bool touchingWall = !_onGround && _wallDir != 0;
 
@@ -413,12 +466,8 @@ public class Player
                     State = PlayerState.Normal;
             }
 
-            // ============================================================
-            // WALL JUMP (tap vs hold) — LÓGICA LINEAR CORRIGIDA
-            // ============================================================
             bool onWall = State == PlayerState.WallSlide && _wallJumpCooldownTimer <= 0f;
 
-            // 1) Detecta o início do aperto (na parede)
             if (onWall && input.JumpPressed && !_jumpHeldOnWall)
             {
                 _jumpHeldOnWall = true;
@@ -427,7 +476,6 @@ public class Player
                 _wallJumpCharge = 0f;
             }
 
-            // 2) Se tá segurando na parede, progride a carga
             if (onWall && _jumpHeldOnWall && input.JumpHeld)
             {
                 _wallJumpHoldTimer += dt;
@@ -438,11 +486,9 @@ public class Player
                 }
             }
 
-            // 3) Detecta condições de disparo
             bool released = _jumpHeldOnWall && !input.JumpHeld;
             bool cancelAndFire = _chargingWallJump && movingAwayFromWall;
 
-            // 4) Dispara
             if (_jumpHeldOnWall && (released || cancelAndFire))
             {
                 if (_chargingWallJump && _wallJumpCharge >= WallJumpMinCharge)
@@ -456,7 +502,6 @@ public class Player
                 _wallJumpHoldTimer = 0f;
             }
 
-            // 5) Se saiu da parede SEM disparar (caiu de repente, etc), reseta
             if (!onWall && _jumpHeldOnWall && !cancelAndFire)
             {
                 _jumpHeldOnWall = false;
@@ -465,7 +510,6 @@ public class Player
                 _wallJumpHoldTimer = 0f;
             }
 
-            // ---- Pulo normal ----
             if (_coyote > 0f && _jumpBuf > 0f && State != PlayerState.WallSlide)
             {
                 Velocity.Y = -JumpSpeed;
@@ -494,6 +538,52 @@ public class Player
         UpdateKatana();
         _chargeArrow.UpdateFade(dt);
         UpdateChargeArrow();
+    }
+
+    private void UpdateStaminaRegen(float dt)
+    {
+        if (Stamina >= MaxStamina)
+        {
+            _staminaRegenTimer = 0f;
+            return;
+        }
+
+        if (State == PlayerState.Super)
+            return;
+
+        if (_nearbyThreats > MaxThreatsAllowed)
+            return;
+
+        float timePerCharge = Stamina >= 1f ? StaminaRegenWithCharges : StaminaRegenEmpty;
+
+        _staminaRegenTimer += dt;
+
+        while (_staminaRegenTimer >= timePerCharge && Stamina < MaxStamina)
+        {
+            _staminaRegenTimer -= timePerCharge;
+            AddStamina(1f);
+
+            timePerCharge = Stamina >= 1f ? StaminaRegenWithCharges : StaminaRegenEmpty;
+        }
+    }
+
+    private int CountNearbyThreats(List<Enemy>? enemies)
+    {
+        if (enemies == null) return 0;
+
+        int count = 0;
+        float rangeSq = ThreatRange * ThreatRange;
+
+        foreach (var e in enemies)
+        {
+            if (e.IsDead) continue;
+            if (e.IsDying) continue;
+
+            float d = Vector2.DistanceSquared(Position, e.Position);
+            if (d <= rangeSq) count++;
+        }
+
+        return count;
     }
 
     private void ExecuteTapWallJump()
@@ -599,7 +689,11 @@ public class Player
 
         _chargeArrow.Draw(Position, gameTime);
 
-        if (blink) return;
+        if (blink)
+        {
+            _floatingText.Draw();
+            return;
+        }
 
         Color tint = State switch
         {
@@ -612,6 +706,7 @@ public class Player
         _anim.DrawCentered(drawPos, Facing < 0, tint);
 
         _katana.Draw(Position);
+        _floatingText.Draw();
     }
 
     private int DetectWall(Level level)
