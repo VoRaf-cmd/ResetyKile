@@ -102,6 +102,7 @@ public static class Program
         Raylib.SetExitKey(KeyboardKey.Null);
 
         var renderer     = new Renderer();
+        var cameraCtrl = new CameraController();
         var shake        = new ScreenShake();
         var hitStop      = new HitStop();
         var particles    = new Particles();
@@ -373,6 +374,11 @@ public static class Program
                         ClearInputEdges(ref input);
                     }
 
+                    // Zoom dinâmico
+                    cameraCtrl.SetTargetZoom(GetZoomTarget(player));
+                    cameraCtrl.Update(frameDt);
+                    camera.Zoom = cameraCtrl.Zoom;
+
                     camera.Target = MathUtil.ExpLerp(camera.Target, player.Position, 12f, frameDt);
 
                     shake.Update(frameDt);
@@ -451,6 +457,8 @@ public static class Program
             floatingText.Draw();
 
             Raylib.EndMode2D();
+
+            Vignette.Draw();
 
             // ---- HUD ----
             Hud.Draw(player, gameTime);
@@ -558,6 +566,16 @@ public static class Program
             if (Vector2.DistanceSquared(playerPos, e.Position) <= rangeSq) return false;
         }
         return true;
+    }
+
+    private static float GetZoomTarget(Player player)
+    {
+        // Zoom in durante o wall jump charge
+        if (player.IsChargingWallJump)
+            return 1.15f;
+
+        // Zoom normal no resto
+        return 1.0f;
     }
 
     private static void DoSwitchLevel(string newLevel, ref Player player, ref List<Enemy> enemies, ref Camera2D camera)
