@@ -22,6 +22,9 @@ public static class Program
 
     private const float KnockbackStrength = 140f;
     private const float ResetFadeDuration = 0.8f;
+    private const float SwitchFadeDuration = 0.8f;
+
+    private const float ThreatRangeForMap = 200f;
 
     private static bool _isBorderlessFullscreen = false;
 
@@ -80,6 +83,18 @@ public static class Program
         return (Raylib.GetMonitorWidth(0), Raylib.GetMonitorHeight(0));
     }
 
+    // ============================================================
+    // ESTADO DE FASE
+    // ============================================================
+    private static string _currentLevel = "Airport";
+    private static readonly Dictionary<string, Level> _levels = new();
+    private static readonly Dictionary<string, Vector2> _spawns = new();
+    private static readonly Dictionary<string, LevelState> _levelStates = new();
+
+    private static Level GetLevel(string name) => _levels[name];
+    private static Vector2 GetSpawn(string name) => _spawns[name];
+    private static LevelState GetState(string name) => _levelStates[name];
+
     public static void Main()
     {
         Raylib.SetConfigFlags(ConfigFlags.VSyncHint);
@@ -94,23 +109,22 @@ public static class Program
         var floatingText = new FloatingText();
         var stats        = new SessionStats();
 
-        var level       = Level.OrientalVillage();
-        var playerSpawn = new Vector2(32, 240);
-        var player      = new Player { Position = playerSpawn };
-
-        var enemies = new List<Enemy>
+        // ---- Registra fases (inimigos criados UMA vez e guardados no state) ----
+        RegisterLevel("Airport",    Level.Airport(),    new Vector2(32, 200),  lvl => new List<Enemy>());
+        RegisterLevel("UncleHouse", Level.UncleHouse(), new Vector2(32, 120),  lvl => new List<Enemy>());
+        RegisterLevel("Casino",     Level.Casino(),     new Vector2(32, 200),  lvl => new List<Enemy>
         {
-            new Enemy(new Vector2(100, 240), level),
-            new Enemy(new Vector2(160, 240), level),
-            new Enemy(new Vector2(220, 240), level),
-            new Enemy(new Vector2(300, 200), level),
-            new Enemy(new Vector2(380, 240), level),
-            new Enemy(new Vector2(420, 180), level),
-            new Enemy(new Vector2(460, 240), level),
-            new Enemy(new Vector2(500, 240), level),
-            new Enemy(new Vector2(540, 220), level),
-            new Enemy(new Vector2(580, 240), level),
-        };
+            new Enemy(new Vector2(100, 200), lvl),
+            new Enemy(new Vector2(180, 160), lvl),
+            new Enemy(new Vector2(260, 200), lvl),
+            new Enemy(new Vector2(340, 160), lvl),
+            new Enemy(new Vector2(420, 200), lvl),
+        });
+
+        _currentLevel = "Airport";
+        var level   = GetLevel(_currentLevel);
+        var player  = new Player { Position = GetSpawn(_currentLevel) };
+        var enemies = GetState(_currentLevel).Enemies;
 
         var camera = new Camera2D
         {
@@ -131,6 +145,14 @@ public static class Program
         bool resetting = false;
         float resetFadeTimer = 0f;
 
+        // Transição de fase
+        bool switching = false;
+        float switchFadeTimer = 0f;
+        string pendingLevel = "";
+
+        // Mapa overlay
+        bool mapOpen = false;
+
         while (!Raylib.WindowShouldClose())
         {
             float frameDt = MathF.Min(Raylib.GetFrameTime(), MaxFrameDt);
@@ -139,11 +161,13 @@ public static class Program
 
             var input = Input.Read();
 
+            // ---- Fullscreen ----
             bool altEnter = Raylib.IsKeyDown(KeyboardKey.LeftAlt) || Raylib.IsKeyDown(KeyboardKey.RightAlt);
             if (Raylib.IsKeyPressed(KeyboardKey.F11) || (altEnter && Raylib.IsKeyPressed(KeyboardKey.Enter)))
                 ToggleBorderlessFullscreen();
 
-            if (input.PausePressed)
+            // ---- Pause ----
+            if (input.PausePressed && !mapOpen)
             {
                 paused = !paused;
                 input.JumpPressed   = false;
@@ -155,18 +179,51 @@ public static class Program
                 input.ResetPressed  = false;
             }
 
-            if (input.ResetPressed && !resetting)
+            // ---- Reset (R) ----
+            if (input.ResetPressed && !resetting && !switching && !mapOpen)
             {
                 resetting = true;
                 resetFadeTimer = 0f;
                 input.ResetPressed = false;
             }
 
-            if (!paused)
+            // ---- Mapa (Tab) ----
+            bool tabPressed = Raylib.IsKeyPressed(KeyboardKey.Tab);
+
+            if (tabPressed && !mapOpen && !switching && !paused)
+            {
+                if (CanOpenMap(player.Position, enemies))
+                    mapOpen = true;
+            }
+            else if (tabPressed && mapOpen)
+            {
+                mapOpen = false;
+            }
+
+            // ---- Mapa aberto: navegação 1/2/3 ----
+            if (mapOpen)
+            {
+                string? chosen = null;
+
+                if (Raylib.IsKeyPressed(KeyboardKey.One))   chosen = "Airport";
+                if (Raylib.IsKeyPressed(KeyboardKey.Two))   chosen = "UncleHouse";
+                if (Raylib.IsKeyPressed(KeyboardKey.Three)) chosen = "Casino";
+
+                if (chosen != null && chosen != _currentLevel)
+                {
+                    pendingLevel = chosen;
+                    switching = true;
+                    switchFadeTimer = 0f;
+                    mapOpen = false;
+                }
+            }
+
+            if (!paused && !switching)
             {
                 sessionTime += frameDt;
                 gameTime += frameDt;
 
+                // ---- Reset em andamento ----
                 if (resetting)
                 {
                     float prev = resetFadeTimer;
@@ -174,8 +231,9 @@ public static class Program
 
                     if (prev < 0.5f && resetFadeTimer >= 0.5f)
                     {
-                        player.Reset(playerSpawn);
-                        foreach (var e in enemies) e.Reset();
+                        player.Reset(GetSpawn(_currentLevel));
+                        GetState(_currentLevel).Reset();
+
                         stats.ResetPoints();
                         sessionTime = 0f;
                         gameTime = 0f;
@@ -204,15 +262,7 @@ public static class Program
                         {
                             hitStop.Update(FixedDt);
                             accumulator -= FixedDt;
-
-                            input.JumpPressed   = false;
-                            input.JumpReleased  = false;
-                            input.DashPressed   = false;
-                            input.AttackPressed = false;
-                            input.SuperPressed  = false;
-                            input.PausePressed  = false;
-                            input.ResetPressed  = false;
-
+                            ClearInputEdges(ref input);
                             continue;
                         }
 
@@ -237,9 +287,9 @@ public static class Program
                                 bool isDoubleHit  = hitTargets.Count >= 2;
 
                                 if (isDashAttack)
-                                    ProcessDashAttack(hitTargets, player, shake, hitStop, particles, stats, floatingText);
+                                    ProcessDashAttack(hitTargets, player, shake, hitStop, particles, stats, floatingText, GetState(_currentLevel));
                                 else
-                                    ProcessNormalAttack(hitTargets, player, shake, hitStop, particles, stats, floatingText);
+                                    ProcessNormalAttack(hitTargets, player, shake, hitStop, particles, stats, floatingText, GetState(_currentLevel));
 
                                 if (player.Hp <= 4 || isDoubleHit)
                                 {
@@ -314,20 +364,13 @@ public static class Program
                             playerDeathTimer -= FixedDt;
                             if (playerDeathTimer <= 0f)
                             {
-                                player.Respawn(playerSpawn);
+                                player.Respawn(GetSpawn(_currentLevel));
                                 playerIsDead = false;
                             }
                         }
 
                         accumulator -= FixedDt;
-
-                        input.JumpPressed   = false;
-                        input.JumpReleased  = false;
-                        input.DashPressed   = false;
-                        input.AttackPressed = false;
-                        input.SuperPressed  = false;
-                        input.PausePressed  = false;
-                        input.ResetPressed  = false;
+                        ClearInputEdges(ref input);
                     }
 
                     camera.Target = MathUtil.ExpLerp(camera.Target, player.Position, 12f, frameDt);
@@ -343,6 +386,25 @@ public static class Program
                 {
                     accumulator = 0f;
                 }
+            }
+            else if (switching)
+            {
+                switchFadeTimer += frameDt / SwitchFadeDuration;
+
+                if (switchFadeTimer >= 0.5f && pendingLevel != "")
+                {
+                    DoSwitchLevel(pendingLevel, ref player, ref enemies, ref camera);
+                    level = GetLevel(_currentLevel);
+                    pendingLevel = "";
+                }
+
+                if (switchFadeTimer >= 1f)
+                {
+                    switching = false;
+                    switchFadeTimer = 0f;
+                }
+
+                accumulator = 0f;
             }
             else
             {
@@ -390,18 +452,17 @@ public static class Program
 
             Raylib.EndMode2D();
 
+            // ---- HUD ----
             Hud.Draw(player, gameTime);
             SessionStats.Draw(stats, sessionTime);
 
-            if (playerIsDead)
-            {
-                string msg = "Voce morreu...";
-                int fontSize = 10;
-                int w = Raylib.MeasureText(msg, fontSize);
-                Raylib.DrawText(msg, Renderer.InternalW / 2 - w / 2, Renderer.InternalH / 2 - 20, fontSize,
-                    new Color((byte)255, (byte)90, (byte)90, (byte)255));
-            }
+            // ---- Info de debug (canto inferior) ----
+            Raylib.DrawText($"Fase: {_currentLevel}", 4, Renderer.InternalH - 22, 8,
+                new Color((byte)80, (byte)80, (byte)80, (byte)255));
+            Raylib.DrawText("Tab: Mapa  |  R: Reset", 4, Renderer.InternalH - 12, 8,
+                new Color((byte)80, (byte)80, (byte)80, (byte)255));
 
+            // ---- Pause overlay ----
             if (paused)
             {
                 Raylib.DrawRectangle(0, 0, Renderer.InternalW, Renderer.InternalH,
@@ -410,43 +471,62 @@ public static class Program
                 string title = "PAUSADO";
                 int titleSize = 20;
                 int titleW = Raylib.MeasureText(title, titleSize);
-                int titleX = Renderer.InternalW / 2 - titleW / 2;
-                int titleY = Renderer.InternalH / 2 - 20;
-
-                Raylib.DrawText(title, titleX + 1, titleY + 1, titleSize, new Color((byte)0, (byte)0, (byte)0, (byte)200));
-                Raylib.DrawText(title, titleX, titleY, titleSize, new Color((byte)240, (byte)240, (byte)250, (byte)255));
-
-                string hint = "Aperte Esc / Start para continuar";
-                int hintSize = 10;
-                int hintW = Raylib.MeasureText(hint, hintSize);
-                int hintX = Renderer.InternalW / 2 - hintW / 2;
-                int hintY = titleY + titleSize + 6;
-
-                Raylib.DrawText(hint, hintX + 1, hintY + 1, hintSize, new Color((byte)0, (byte)0, (byte)0, (byte)200));
-                Raylib.DrawText(hint, hintX, hintY, hintSize, new Color((byte)180, (byte)180, (byte)200, (byte)255));
+                Raylib.DrawText(title, Renderer.InternalW / 2 - titleW / 2, Renderer.InternalH / 2 - 20,
+                    titleSize, new Color((byte)240, (byte)240, (byte)250, (byte)255));
             }
+
+            // ---- Mapa overlay (provisório) ----
+            if (mapOpen)
+            {
+                Raylib.DrawRectangle(0, 0, Renderer.InternalW, Renderer.InternalH,
+                    new Color((byte)20, (byte)20, (byte)30, (byte)230));
+
+                string title = "MAPA";
+                int titleSize = 20;
+                int titleW = Raylib.MeasureText(title, titleSize);
+                Raylib.DrawText(title, Renderer.InternalW / 2 - titleW / 2, 30,
+                    titleSize, new Color((byte)240, (byte)240, (byte)250, (byte)255));
+
+                string line1 = "1 - Aeroporto";
+                string line2 = "2 - Casa do Tio";
+                string line3 = "3 - Cassino";
+                int optSize = 10;
+                int lineH = 16;
+                int startY = 70;
+
+                Color c1 = _currentLevel == "Airport"    ? new Color((byte)120, (byte)220, (byte)255, (byte)255) : Color.White;
+                Color c2 = _currentLevel == "UncleHouse" ? new Color((byte)120, (byte)220, (byte)255, (byte)255) : Color.White;
+                Color c3 = _currentLevel == "Casino"     ? new Color((byte)120, (byte)220, (byte)255, (byte)255) : Color.White;
+
+                Raylib.DrawText(line1, Renderer.InternalW / 2 - 60, startY, optSize, c1);
+                Raylib.DrawText(line2, Renderer.InternalW / 2 - 60, startY + lineH, optSize, c2);
+                Raylib.DrawText(line3, Renderer.InternalW / 2 - 60, startY + lineH * 2, optSize, c3);
+
+                string hint = "Aperte 1, 2 ou 3 pra ir  |  Tab pra fechar";
+                int hintSize = 8;
+                int hintW = Raylib.MeasureText(hint, hintSize);
+                Raylib.DrawText(hint, Renderer.InternalW / 2 - hintW / 2, Renderer.InternalH - 20,
+                    hintSize, new Color((byte)180, (byte)180, (byte)200, (byte)255));
+            }
+
+            // ---- Fade ----
+            float fadeAlpha = 0f;
 
             if (resetting)
             {
-                float alpha;
-                if (resetFadeTimer < 0.5f)
-                    alpha = resetFadeTimer * 2f;
-                else
-                    alpha = (1f - resetFadeTimer) * 2f;
-
-                alpha = Math.Clamp(alpha, 0f, 1f);
-
-                if (MathF.Abs(resetFadeTimer - 0.5f) < 0.03f)
-                {
-                    byte flashA = (byte)((1f - MathF.Abs(resetFadeTimer - 0.5f) / 0.03f) * 200f);
-                    Raylib.DrawRectangle(0, 0, Renderer.InternalW, Renderer.InternalH,
-                        new Color((byte)255, (byte)255, (byte)255, flashA));
-                }
-
-                byte a = (byte)(alpha * 255);
-                Raylib.DrawRectangle(0, 0, Renderer.InternalW, Renderer.InternalH,
-                    new Color((byte)0, (byte)0, (byte)0, a));
+                if (resetFadeTimer < 0.5f) fadeAlpha = resetFadeTimer * 2f;
+                else                       fadeAlpha = (1f - resetFadeTimer) * 2f;
             }
+            else if (switching)
+            {
+                if (switchFadeTimer < 0.5f) fadeAlpha = switchFadeTimer * 2f;
+                else                        fadeAlpha = (1f - switchFadeTimer) * 2f;
+            }
+
+            fadeAlpha = Math.Clamp(fadeAlpha, 0f, 1f);
+            byte a = (byte)(fadeAlpha * 255);
+            Raylib.DrawRectangle(0, 0, Renderer.InternalW, Renderer.InternalH,
+                new Color((byte)0, (byte)0, (byte)0, a));
 
             renderer.End();
         }
@@ -454,6 +534,60 @@ public static class Program
         player.UnloadAnimations();
         renderer.Unload();
         Raylib.CloseWindow();
+    }
+
+    // ============================================================
+    // HELPERS DE FASE
+    // ============================================================
+    private static void RegisterLevel(string name, Level level, Vector2 spawn, Func<Level, List<Enemy>> spawner)
+    {
+        _levels[name] = level;
+        _spawns[name] = spawn;
+
+        var state = new LevelState(name) { SpawnPosition = spawn };
+        state.Enemies = spawner(level);
+        _levelStates[name] = state;
+    }
+
+    private static bool CanOpenMap(Vector2 playerPos, List<Enemy> enemies)
+    {
+        float rangeSq = ThreatRangeForMap * ThreatRangeForMap;
+        foreach (var e in enemies)
+        {
+            if (!e.IsAlive) continue;
+            if (Vector2.DistanceSquared(playerPos, e.Position) <= rangeSq) return false;
+        }
+        return true;
+    }
+
+    private static void DoSwitchLevel(string newLevel, ref Player player, ref List<Enemy> enemies, ref Camera2D camera)
+    {
+        _currentLevel = newLevel;
+        var spawn = GetSpawn(_currentLevel);
+
+        player.Position = spawn;
+        player.Velocity = Vector2.Zero;
+
+        // Custo da Casa do Tio
+        if (_currentLevel == "UncleHouse")
+        {
+            player.ConsumeForHouse();
+            player.HealHouse();
+        }
+
+        enemies = GetState(_currentLevel).Enemies;
+        camera.Target = spawn;
+    }
+
+    private static void ClearInputEdges(ref InputState input)
+    {
+        input.JumpPressed   = false;
+        input.JumpReleased  = false;
+        input.DashPressed   = false;
+        input.AttackPressed = false;
+        input.SuperPressed  = false;
+        input.PausePressed  = false;
+        input.ResetPressed  = false;
     }
 
     private static void ToggleBorderlessFullscreen()
@@ -476,11 +610,11 @@ public static class Program
     }
 
     // ============================================================
-    // ATAQUE NORMAL
+    // ATAQUES
     // ============================================================
     private static void ProcessNormalAttack(List<Enemy> hitTargets, Player player,
         ScreenShake shake, HitStop hitStop, Particles particles,
-        SessionStats stats, FloatingText floatingText)
+        SessionStats stats, FloatingText floatingText, LevelState levelState)
     {
         bool isDoubleHit = hitTargets.Count >= 2;
         float dmgPerEnemy = NormalAttackDamage / hitTargets.Count;
@@ -507,6 +641,7 @@ public static class Program
 
             if (died)
             {
+                levelState.MarkEnemyDead(e.Id);
                 player.AddSoul(1);
                 stats.RegisterKill(false);
                 shake.AddTrauma(0.35f);
@@ -526,15 +661,12 @@ public static class Program
         }
     }
 
-    // ============================================================
-    // DASH-ATTACK
-    // ============================================================
     private static void ProcessDashAttack(List<Enemy> hitTargets, Player player,
         ScreenShake shake, HitStop hitStop, Particles particles,
-        SessionStats stats, FloatingText floatingText)
+        SessionStats stats, FloatingText floatingText, LevelState levelState)
     {
         int kbDir = player.Facing;
-        int kills = 0;   // ← contador de kills neste dash-attack
+        int kills = 0;
 
         var sorted = new List<Enemy>(hitTargets);
         sorted.Sort((a, b) =>
@@ -562,7 +694,8 @@ public static class Program
                 if (died)
                 {
                     killCount++;
-                    kills++;   // ← conta
+                    kills++;
+                    levelState.MarkEnemyDead(e.Id);
                     player.AddSoul(1);
                     stats.RegisterKill(true);
                     particles.Burst(e.Position, 14, new Color((byte)255, (byte)120, (byte)120, (byte)255),
@@ -580,7 +713,8 @@ public static class Program
                 if (died)
                 {
                     killCount++;
-                    kills++;   // ← conta
+                    kills++;
+                    levelState.MarkEnemyDead(e.Id);
                     player.AddSoul(1);
                     stats.RegisterKill(true);
                     particles.Burst(e.Position, 14, new Color((byte)255, (byte)120, (byte)120, (byte)255),
@@ -597,7 +731,6 @@ public static class Program
             }
         }
 
-        // Recompensa de stamina
         if (kills > 0)
             player.RegisterDashAttackHit(sorted.Count, kills);
     }

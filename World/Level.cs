@@ -6,8 +6,8 @@ namespace ResetyKile.World;
 public enum TileType
 {
     Empty = 0,
-    Solid,       // chão/parede sólido (colide todos os lados)
-    Platform,    // plataforma atravessável (colide só por cima)
+    Solid,
+    Platform,
 }
 
 public class Level
@@ -20,7 +20,6 @@ public class Level
 
     public Level(TileType[,] grid) { _grid = grid; }
 
-    // ---------- Colisão SÓLIDA (todos os lados) ----------
     public IEnumerable<Rectangle> SolidTilesNear(Rectangle r)
     {
         int x0 = Math.Max(0, (int)(r.X / TileSize) - 1);
@@ -34,9 +33,6 @@ public class Level
                     yield return new Rectangle(x * TileSize, y * TileSize, TileSize, TileSize);
     }
 
-    // ---------- Colisão PLATAFORMA (só por cima) ----------
-    /// Retorna os tiles de plataforma próximos do retângulo.
-    /// A física decide se colide (só se estiver caindo e acima do topo).
     public IEnumerable<Rectangle> PlatformTilesNear(Rectangle r)
     {
         int x0 = Math.Max(0, (int)(r.X / TileSize) - 1);
@@ -47,12 +43,9 @@ public class Level
         for (int y = y0; y <= y1; y++)
             for (int x = x0; x <= x1; x++)
                 if (_grid[x, y] == TileType.Platform)
-                    yield return new Rectangle(x * TileSize, y * TileSize, TileSize, 3); // topo da plataforma
+                    yield return new Rectangle(x * TileSize, y * TileSize, TileSize, 3);
     }
 
-    // ---------- Colisão unificada ----------
-    /// Checa se colide com tile sólido OU plataforma (dependendo do estado).
-    /// `falling` = player tá caindo (Vel.Y >= 0) — só aí plataforma colide.
     public bool CollidesAny(Rectangle r, bool falling = true)
     {
         foreach (var t in SolidTilesNear(r))
@@ -67,7 +60,6 @@ public class Level
         return false;
     }
 
-    // ---------- Desenho ----------
     private static readonly Color ColorSolidTop    = new((byte)120, (byte)90, (byte)60, (byte)255);
     private static readonly Color ColorSolidBody   = new((byte)90, (byte)65, (byte)45, (byte)255);
     private static readonly Color ColorSolidEdge   = new((byte)60, (byte)40, (byte)25, (byte)255);
@@ -108,7 +100,6 @@ public class Level
                 }
                 else if (type == TileType.Platform)
                 {
-                    // Só o topo é "sólido" visualmente
                     Raylib.DrawRectangle(px, py, TileSize, 3, ColorPlatformTop);
                     Raylib.DrawRectangle(px, py + 3, TileSize, 2, ColorPlatform);
                     Raylib.DrawRectangle(px, py + 5, TileSize, 1, ColorPlatformDark);
@@ -118,12 +109,11 @@ public class Level
     }
 
     // ============================================================
-    // FASE — Oriental Village
+    // FASE 1 — Aeroporto (tutorial, sem inimigos)
     // ============================================================
-    public static Level OrientalVillage()
+    public static Level Airport()
     {
-        const int W = 80;
-        const int H = 40;
+        const int W = 60, H = 30;
         var g = new TileType[W, H];
 
         void FillRect(int x0, int y0, int w, int h, TileType t)
@@ -136,32 +126,88 @@ public class Level
 
         // Chão
         FillRect(0, H - 3, W, 3, TileType.Solid);
-
-        // Paredes laterais
+        // Paredes
         FillRect(0, 0, 1, H, TileType.Solid);
         FillRect(W - 1, 0, 1, H, TileType.Solid);
 
-        // Plataformas iniciais (atravessáveis)
-        FillRect(8,  H - 6, 6, 1, TileType.Platform);
-        FillRect(16, H - 9, 6, 1, TileType.Platform);
-        FillRect(24, H - 12, 6, 1, TileType.Platform);
+        // Plataformas de tutorial (pulo)
+        FillRect(6,  H - 7, 5, 1, TileType.Platform);
+        FillRect(14, H - 10, 5, 1, TileType.Platform);
+        FillRect(22, H - 13, 5, 1, TileType.Platform);
 
-        // Pagode central
-        FillRect(32, H - 6, 12, 1, TileType.Solid);
-        FillRect(34, H - 10, 8, 1, TileType.Platform);
-        FillRect(36, H - 14, 4, 1, TileType.Platform);
+        // Parede pra wall jump
+        FillRect(32, H - 12, 1, 8, TileType.Solid);
+
+        // Área de dash
+        FillRect(40, H - 6, 10, 1, TileType.Solid);
+
+        return new Level(g);
+    }
+
+    // ============================================================
+    // FASE 2 — Casa do Tio (área segura, sem inimigos)
+    // ============================================================
+    public static Level UncleHouse()
+    {
+        const int W = 40, H = 20;
+        var g = new TileType[W, H];
+
+        void FillRect(int x0, int y0, int w, int h, TileType t)
+        {
+            for (int yy = y0; yy < y0 + h; yy++)
+                for (int xx = x0; xx < x0 + w; xx++)
+                    if (xx >= 0 && xx < W && yy >= 0 && yy < H)
+                        g[xx, yy] = t;
+        }
+
+        // Chão
+        FillRect(0, H - 2, W, 2, TileType.Solid);
+        // Paredes
+        FillRect(0, 0, 1, H, TileType.Solid);
+        FillRect(W - 1, 0, 1, H, TileType.Solid);
+        // Teto
+        FillRect(0, 0, W, 1, TileType.Solid);
+
+        // Móveis (plataformas decorativas)
+        FillRect(6, H - 5, 4, 1, TileType.Platform);
+        FillRect(14, H - 7, 3, 1, TileType.Platform);
+        FillRect(24, H - 5, 5, 1, TileType.Platform);
+
+        return new Level(g);
+    }
+
+    // ============================================================
+    // FASE 3 — Cassino (combate)
+    // ============================================================
+    public static Level Casino()
+    {
+        const int W = 70, H = 30;
+        var g = new TileType[W, H];
+
+        void FillRect(int x0, int y0, int w, int h, TileType t)
+        {
+            for (int yy = y0; yy < y0 + h; yy++)
+                for (int xx = x0; xx < x0 + w; xx++)
+                    if (xx >= 0 && xx < W && yy >= 0 && yy < H)
+                        g[xx, yy] = t;
+        }
+
+        // Chão
+        FillRect(0, H - 3, W, 3, TileType.Solid);
+        // Paredes
+        FillRect(0, 0, 1, H, TileType.Solid);
+        FillRect(W - 1, 0, 1, H, TileType.Solid);
+
+        // "Mesas de cassino" (plataformas)
+        FillRect(8,  H - 8, 4, 1, TileType.Platform);
+        FillRect(18, H - 12, 4, 1, TileType.Platform);
+        FillRect(28, H - 8, 4, 1, TileType.Platform);
+        FillRect(38, H - 14, 4, 1, TileType.Platform);
+        FillRect(48, H - 10, 4, 1, TileType.Platform);
+        FillRect(58, H - 8, 4, 1, TileType.Platform);
 
         // Parede escalável
-        FillRect(48, H - 16, 1, 10, TileType.Solid);
-
-        // Área de treino
-        FillRect(56, H - 8, 3, 1, TileType.Platform);
-        FillRect(62, H - 12, 3, 1, TileType.Platform);
-        FillRect(68, H - 16, 3, 1, TileType.Platform);
-
-        // Topo
-        FillRect(28, H - 20, 4, 1, TileType.Platform);
-        FillRect(40, H - 22, 4, 1, TileType.Platform);
+        FillRect(34, H - 18, 1, 10, TileType.Solid);
 
         return new Level(g);
     }

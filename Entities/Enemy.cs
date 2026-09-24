@@ -14,7 +14,7 @@ public class Enemy
     private const float ChaseSpeed    = 55f;
     private const float DetectRange   = 70f;
     private const float LoseRange     = 110f;
-    private const float RespawnTime   = 6f;
+    private const float RespawnTime   = 9999f;
     private const float DeathFlicker  = 0.15f;
     private const float HurtFlicker   = 0.12f;
 
@@ -110,15 +110,7 @@ public class Enemy
 
         if (State == EnemyState.Dead)
         {
-            RespawnTimer -= dt;
-            if (RespawnTimer <= 0f)
-            {
-                Position = SpawnPosition;
-                Velocity = Vector2.Zero;
-                Hp = MaxHp;
-                State = EnemyState.Patrol;
-                _stuckTimer = 0f;
-            }
+            // Sem respawn automático (persistência de fase controla)
             return;
         }
 

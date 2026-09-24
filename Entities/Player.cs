@@ -314,6 +314,17 @@ public class Player
         _chargeArrow.Enabled = false;
     }
 
+        public void ConsumeForHouse()
+    {
+        Stamina = MathF.Max(0f, Stamina - 1f);
+        Souls = Math.Max(0, Souls - 1);
+    }
+
+    public void HealHouse()
+    {
+        Hp = Math.Min(MaxHp, Hp + 10);   // metade de 20
+    }
+
     public void Update(float dt, InputState input, Level level, List<Enemy>? enemies = null)
     {
         _coyote      = _onGround ? CoyoteTime : MathF.Max(0, _coyote - dt);
