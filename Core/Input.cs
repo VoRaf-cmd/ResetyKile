@@ -19,6 +19,12 @@ public struct InputState
 
     public bool PausePressed;
     public bool ResetPressed;
+
+    // Novo: mapa
+    public bool MapPressed;          // abre/fecha
+    public bool MapConfirmPressed;   // confirma
+    public int  MapNavigateX;        // -1, 0, +1
+    public int  MapNavigateY;        // -1, 0, +1
 }
 
 public static class Input
@@ -27,6 +33,7 @@ public static class Input
     private const GamepadButton GP_Dash  = GamepadButton.RightFaceLeft;  // X / Square
     private const GamepadButton GP_Super = GamepadButton.RightFaceRight; // B / Circle
     private const GamepadButton GP_Pause = GamepadButton.MiddleRight;    // Start / Options
+    private const GamepadButton GP_Map   = GamepadButton.MiddleLeft;     // Select / Share
 
     private const GamepadAxis AX_LX = GamepadAxis.LeftX;
     private const GamepadAxis AX_LY = GamepadAxis.LeftY;
@@ -37,7 +44,6 @@ public static class Input
 
     private static bool _prevTriggerDown;
 
-    // ---- Detecção de dispositivo ----
     public static InputDevice LastDevice { get; private set; } = InputDevice.Keyboard;
     public static GamepadBrand Brand    { get; private set; } = GamepadBrand.Unknown;
 
@@ -46,7 +52,6 @@ public static class Input
         var s = new InputState();
         bool pad = Raylib.IsGamepadAvailable(0);
 
-        // Detecta brand do gamepad (uma vez)
         if (pad && Brand == GamepadBrand.Unknown)
             Brand = DetectBrand();
 
@@ -126,14 +131,44 @@ public static class Input
         s.PausePressed = Raylib.IsKeyPressed(KeyboardKey.Escape)
                       || (pad && Raylib.IsGamepadButtonPressed(0, GP_Pause));
 
-        // ---- Reset ----
-        s.ResetPressed = Raylib.IsKeyPressed(KeyboardKey.R)
-                      || (pad && (Raylib.IsGamepadButtonPressed(0, GamepadButton.MiddleLeft)
-                              ||  Raylib.IsGamepadButtonPressed(0, GamepadButton.LeftThumb)
-                              ||  Raylib.IsGamepadButtonPressed(0, GamepadButton.RightThumb)));
+        // ---- Reset (L3 + R3 juntos) ----
+        bool l3 = pad && Raylib.IsGamepadButtonDown(0, GamepadButton.LeftThumb);
+        bool r3 = pad && Raylib.IsGamepadButtonDown(0, GamepadButton.RightThumb);
+        bool resetPad = l3 && r3;
+        bool resetKey = Raylib.IsKeyPressed(KeyboardKey.R);
+
+        s.ResetPressed = resetKey || resetPad;
+
+        // ---- Mapa ----
+        bool mapKey = Raylib.IsKeyPressed(KeyboardKey.Tab);
+        bool mapPad = pad && Raylib.IsGamepadButtonPressed(0, GP_Map);
+        s.MapPressed = mapKey || mapPad;
+
+        // Confirma no mapa
+        bool confirmKey = Raylib.IsKeyPressed(KeyboardKey.Enter);
+        bool confirmPad = pad && Raylib.IsGamepadButtonPressed(0, GP_Jump);   // A / Cross
+        s.MapConfirmPressed = confirmKey || confirmPad;
+
+        // Navegação no mapa (X e Y)
+        int navX = 0, navY = 0;
+
+        if (Raylib.IsKeyPressed(KeyboardKey.Left))  navX = -1;
+        if (Raylib.IsKeyPressed(KeyboardKey.Right)) navX =  1;
+        if (Raylib.IsKeyPressed(KeyboardKey.Up))    navY = -1;
+        if (Raylib.IsKeyPressed(KeyboardKey.Down))  navY =  1;
+
+        if (pad)
+        {
+            if (Raylib.IsGamepadButtonPressed(0, GamepadButton.LeftFaceLeft))  navX = -1;
+            if (Raylib.IsGamepadButtonPressed(0, GamepadButton.LeftFaceRight)) navX =  1;
+            if (Raylib.IsGamepadButtonPressed(0, GamepadButton.LeftFaceUp))    navY = -1;
+            if (Raylib.IsGamepadButtonPressed(0, GamepadButton.LeftFaceDown))  navY =  1;
+        }
+
+        s.MapNavigateX = navX;
+        s.MapNavigateY = navY;
 
         // ---- Atualiza último dispositivo ----
-        // Prioriza gamepad se foi apertado (mais recente)
         if (gamepadUsed) LastDevice = InputDevice.Gamepad;
         else if (keyboardUsed) LastDevice = InputDevice.Keyboard;
 
@@ -153,7 +188,8 @@ public static class Input
                 name = name.ToLowerInvariant();
 
                 if (name.Contains("sony") || name.Contains("dualshock") || name.Contains("dualsense")
-                    || name.Contains("playstation") || name.Contains("ps3") || name.Contains("ps4") || name.Contains("ps5"))
+                    || name.Contains("playstation") || name.Contains("ps3") || name.Contains("ps4") || name.Contains("ps5")
+                    || name.Contains("wireless controller"))
                     return GamepadBrand.PlayStation;
 
                 if (name.Contains("xbox") || name.Contains("xinput") || name.Contains("microsoft"))
@@ -168,7 +204,6 @@ public static class Input
         }
     }
 
-    /// Texto do botão de pulo pro indicador (depende do último dispositivo/brand)
     public static string GetJumpButtonLabel()
     {
         if (LastDevice == InputDevice.Gamepad)

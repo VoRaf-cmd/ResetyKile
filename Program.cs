@@ -8,7 +8,6 @@ using ResetyKile.UI;
 using ResetyKile.World;
 
 namespace ResetyKile;
-
 public static class Program
 {
     private const float FixedDt      = 1f / 120f;
@@ -110,9 +109,16 @@ public static class Program
         var floatingText = new FloatingText();
         var stats        = new SessionStats();
 
+        var mapMenu = new MapMenu();
+        mapMenu.AddPoint("Airport",    "Aeroporto",    new Vector2(60, 50));
+        mapMenu.AddPoint("UncleHouse", "Casa do Tio",  new Vector2(160, 100));
+        mapMenu.AddPoint("Casino",     "Cassino",      new Vector2(260, 60));
+
         // ---- Registra fases (inimigos criados UMA vez e guardados no state) ----
         RegisterLevel("Airport",    Level.Airport(),    new Vector2(32, 200),  lvl => new List<Enemy>());
-        RegisterLevel("UncleHouse", Level.UncleHouse(), new Vector2(32, 120),  lvl => new List<Enemy>());
+                // Carrega a Casa do Tio do Tiled
+        var uncleHouseData = LevelLoader.Load("Assets/levels/uncle_house.json");
+        RegisterLevel("UncleHouse", uncleHouseData.Level, uncleHouseData.PlayerSpawn, lvl => new List<Enemy>());
         RegisterLevel("Casino",     Level.Casino(),     new Vector2(32, 200),  lvl => new List<Enemy>
         {
             new Enemy(new Vector2(100, 200), lvl),
@@ -168,7 +174,7 @@ public static class Program
                 ToggleBorderlessFullscreen();
 
             // ---- Pause ----
-            if (input.PausePressed && !mapOpen)
+            if (input.PausePressed && !mapMenu.IsOpen)
             {
                 paused = !paused;
                 input.JumpPressed   = false;
@@ -188,38 +194,38 @@ public static class Program
                 input.ResetPressed = false;
             }
 
-            // ---- Mapa (Tab) ----
+            // ---- Mapa (Tab/Select) ----
             bool tabPressed = Raylib.IsKeyPressed(KeyboardKey.Tab);
 
-            if (tabPressed && !mapOpen && !switching && !paused)
+            // ---- Mapa (Tab / Select) ----
+            if (input.MapPressed && !switching && !paused)
             {
-                if (CanOpenMap(player.Position, enemies))
-                    mapOpen = true;
+                if (mapMenu.IsOpen)
+                {
+                    mapMenu.Close();
+                }
+                else
+                {
+                    if (CanOpenMap(player.Position, enemies))
+                        mapMenu.Open();
+                }
             }
-            else if (tabPressed && mapOpen)
+
+            // ---- Lógica do mapa aberto ----
+            if (mapMenu.IsOpen)
             {
-                mapOpen = false;
-            }
-
-            // ---- Mapa aberto: navegação 1/2/3 ----
-            if (mapOpen)
-            {
-                string? chosen = null;
-
-                if (Raylib.IsKeyPressed(KeyboardKey.One))   chosen = "Airport";
-                if (Raylib.IsKeyPressed(KeyboardKey.Two))   chosen = "UncleHouse";
-                if (Raylib.IsKeyPressed(KeyboardKey.Three)) chosen = "Casino";
-
-                if (chosen != null && chosen != _currentLevel)
+                string? chosen = mapMenu.HandleInput(input, _currentLevel);
+                if (chosen != null)
                 {
                     pendingLevel = chosen;
                     switching = true;
                     switchFadeTimer = 0f;
-                    mapOpen = false;
                 }
             }
 
-            if (!paused && !switching)
+            mapMenu.Update(frameDt);
+
+            if (!paused && !switching && !mapMenu.IsOpen)
             {
                 sessionTime += frameDt;
                 gameTime += frameDt;
@@ -484,38 +490,7 @@ public static class Program
             }
 
             // ---- Mapa overlay (provisório) ----
-            if (mapOpen)
-            {
-                Raylib.DrawRectangle(0, 0, Renderer.InternalW, Renderer.InternalH,
-                    new Color((byte)20, (byte)20, (byte)30, (byte)230));
-
-                string title = "MAPA";
-                int titleSize = 20;
-                int titleW = Raylib.MeasureText(title, titleSize);
-                Raylib.DrawText(title, Renderer.InternalW / 2 - titleW / 2, 30,
-                    titleSize, new Color((byte)240, (byte)240, (byte)250, (byte)255));
-
-                string line1 = "1 - Aeroporto";
-                string line2 = "2 - Casa do Tio";
-                string line3 = "3 - Cassino";
-                int optSize = 10;
-                int lineH = 16;
-                int startY = 70;
-
-                Color c1 = _currentLevel == "Airport"    ? new Color((byte)120, (byte)220, (byte)255, (byte)255) : Color.White;
-                Color c2 = _currentLevel == "UncleHouse" ? new Color((byte)120, (byte)220, (byte)255, (byte)255) : Color.White;
-                Color c3 = _currentLevel == "Casino"     ? new Color((byte)120, (byte)220, (byte)255, (byte)255) : Color.White;
-
-                Raylib.DrawText(line1, Renderer.InternalW / 2 - 60, startY, optSize, c1);
-                Raylib.DrawText(line2, Renderer.InternalW / 2 - 60, startY + lineH, optSize, c2);
-                Raylib.DrawText(line3, Renderer.InternalW / 2 - 60, startY + lineH * 2, optSize, c3);
-
-                string hint = "Aperte 1, 2 ou 3 pra ir  |  Tab pra fechar";
-                int hintSize = 8;
-                int hintW = Raylib.MeasureText(hint, hintSize);
-                Raylib.DrawText(hint, Renderer.InternalW / 2 - hintW / 2, Renderer.InternalH - 20,
-                    hintSize, new Color((byte)180, (byte)180, (byte)200, (byte)255));
-            }
+            mapMenu.Draw(_currentLevel);
 
             // ---- Fade ----
             float fadeAlpha = 0f;

@@ -10,10 +10,10 @@ namespace ResetyKile.Render;
 public static class Vignette
 {
     /// Intensidade: 0 = nada, 1 = muito escuro
-    public const float Intensity = 0.55f;
+    public const float Intensity = 0.45f;
 
     /// Raio do círculo claro (0..1) — quanto maior, menos borda escura
-    private const float InnerRadius = 0.35f;
+    private const float InnerRadius = 0.55f;
 
     /// Quantos anéis desenhar (mais = mais suave, mais lento)
     private const int Rings = 24;

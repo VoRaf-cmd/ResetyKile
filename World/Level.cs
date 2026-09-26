@@ -41,9 +41,21 @@ public class Level
         int y1 = Math.Min(Height - 1, (int)((r.Y + r.Height) / TileSize) + 1);
 
         for (int y = y0; y <= y1; y++)
+        {
             for (int x = x0; x <= x1; x++)
-                if (_grid[x, y] == TileType.Platform)
-                    yield return new Rectangle(x * TileSize, y * TileSize, TileSize, 3);
+            {
+                if (_grid[x, y] != TileType.Platform) continue;
+
+                // Só considera "topo da plataforma" se o tile ACIMA não é plataforma.
+                // Se o tile acima é plataforma, essa parte é "corpo" — não colide.
+                bool isTop = (y == 0) || (_grid[x, y - 1] != TileType.Platform);
+
+                if (!isTop) continue;
+
+                // Colisão fina no topo (3px de altura)
+                yield return new Rectangle(x * TileSize, y * TileSize, TileSize, 3);
+            }
+        }
     }
 
     public bool CollidesAny(Rectangle r, bool falling = true)
